@@ -89,7 +89,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-in fade-in">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-5 bg-black/95   ">
       <div className="bg-[#0e1015] border border-white/15 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-white/10 flex items-center justify-between">
@@ -109,7 +109,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
 
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white flex items-center justify-center transition-all"
+            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white flex items-center justify-center -all"
           >
             <X className="w-5 h-5" />
           </button>
@@ -132,7 +132,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
             <button
               onClick={handleExportCSV}
               disabled={records.length === 0}
-              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
+              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10 text-xs font-semibold flex items-center gap-1.5 -all disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Exportar CSV</span>
@@ -144,7 +144,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
                 }
               }}
               disabled={records.length === 0}
-              className="px-3 py-1.5 rounded-xl bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
+              className="px-3 py-1.5 rounded-xl bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-500/20 text-xs font-semibold flex items-center gap-1.5 -all disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Vaciar</span>
@@ -166,7 +166,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
             filteredRecords.map((item) => (
               <div
                 key={item.id}
-                className="bg-zinc-900/80 hover:bg-zinc-900 border border-white/10 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all"
+                className="bg-zinc-900/80 hover:bg-zinc-900 border border-white/10 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 -all"
               >
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -206,7 +206,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       title="Compartir por WhatsApp"
-                      className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-xl border border-emerald-500/20 transition-all"
+                      className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-xl border border-emerald-500/20 -all"
                     >
                       <Share2 className="w-4 h-4" />
                     </a>
@@ -215,7 +215,7 @@ export const DeliveryHistoryModal: React.FC<DeliveryHistoryModalProps> = ({
                     <button
                       onClick={() => onResendRecord(item)}
                       title="Reenviar a Google Sheet"
-                      className="p-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl border border-white/10 transition-all"
+                      className="p-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl border border-white/10 -all"
                     >
                       <Send className="w-4 h-4" />
                     </button>

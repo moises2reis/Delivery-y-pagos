@@ -20,7 +20,7 @@ export const PaymentVerification = ({ onClose }: { onClose: () => void }) => {
   return (
     <div className="fixed inset-0 z-[2000] bg-[#0A0A0B] text-white overflow-y-auto flex flex-col items-center">
       {/* Encabezado Principal de Navegación de la Vista */}
-      <div className="w-full px-4 py-3 flex items-center justify-center border-b border-white/10 sticky top-0 z-[2020] bg-[#0A0A0B]/95 backdrop-blur-md">
+      <div className="w-full px-4 py-3 flex items-center justify-center border-b border-white/10 sticky top-0 z-[2020] bg-[#0A0A0B]/95 ">
         <ViewSwitcher
           activeView="pagos"
           onViewChange={(view) => {

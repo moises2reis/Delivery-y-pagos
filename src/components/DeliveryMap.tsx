@@ -1,15 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { RoutingService, Sede } from '../types';
+import { RoutingService, Sede, MapTheme } from '../types';
 import { Route, Navigation, Check, ChevronDown } from 'lucide-react';
 
 const CARTO_API_KEY = (import.meta as any).env?.VITE_CARTO_API_KEY || 'cb1_2y4n_1_a3bf62a7af9beccb1b129b78';
 
-const getTileUrl = (theme: 'dark' | 'light') => {
-  if (theme === 'dark') {
-    return `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
+const getTileUrl = (theme: MapTheme) => {
+  switch (theme) {
+    case 'light':
+      return `https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
+    case 'voyager':
+      return `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
+    case 'satellite':
+      return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`;
+    case 'osm':
+      return `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`;
+    case 'dark':
+    default:
+      return `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
   }
-  return `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
 };
 
 interface DeliveryMapProps {
@@ -26,6 +35,7 @@ interface DeliveryMapProps {
   onToggleRoutingService?: () => void;
   onChangeRoutingService?: (service: RoutingService) => void;
   isManualPinMode: boolean;
+  mapTheme?: MapTheme;
   onAcceptManualPin?: (coords?: { lat: number; lng: number }) => void;
   onCancelManualPin?: () => void;
   onCoordsLiveUpdate?: (coords: { lat: number; lng: number }) => void;
@@ -46,6 +56,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   onToggleRoutingService,
   onChangeRoutingService,
   isManualPinMode,
+  mapTheme = 'dark',
   onAcceptManualPin,
   onCancelManualPin,
   onCoordsLiveUpdate,
@@ -73,8 +84,6 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
 
   const onAcceptManualPinRef = useRef(onAcceptManualPin);
   onAcceptManualPinRef.current = onAcceptManualPin;
-
-  const [mapTheme] = useState<'dark' | 'light'>('dark');
 
   // Keep local coords in sync when destinationCoords changes externally
   useEffect(() => {
@@ -177,28 +186,28 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       const isSelectedNonPreferred = isSelected && !isPreferred;
 
       const markerHtml = `
-        <div class="custom-pin-marker cursor-pointer select-none transition-transform duration-200 hover:scale-110 ${
+        <div class="custom-pin-marker flex flex-col items-center justify-center cursor-pointer select-none   hover:scale-110 ${
           isSelected ? 'z-[600] scale-105' : 'opacity-85 z-[400]'
         }">
           ${
             isSelected
               ? isSelectedNonPreferred
-                ? `<div class="bg-[#EF4444] text-white text-[9px] font-black px-2 py-0.5 rounded-full border border-red-300 uppercase shadow-[0_0_12px_rgba(239,68,68,0.9)] whitespace-nowrap mb-1">
+                ? `<div class="bg-[#EF4444] text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-red-300 uppercase shadow-[0_0_10px_rgba(239,68,68,0.9)] whitespace-nowrap mb-1">
                     SEDE NO PREFERIDA
                   </div>`
-                : `<div class="bg-lime-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full border border-lime-300 uppercase shadow-[0_0_12px_rgba(57,255,20,0.8)] whitespace-nowrap mb-1">
+                : `<div class="bg-lime-500 text-black text-[8px] font-black px-1.5 py-0.5 rounded-full border border-lime-300 uppercase shadow-[0_0_10px_rgba(57,255,20,0.8)] whitespace-nowrap mb-1">
                     SEDE ACTIVA
                   </div>`
               : ''
           }
-          <div class="w-10 h-10 rounded-full border-2 ${
+          <div class="w-8 h-8 rounded-full border-[1.5px] ${
             isSelected
               ? isSelectedNonPreferred
-                ? 'border-[#EF4444] bg-black/90 shadow-[0_0_16px_rgba(239,68,68,0.9)]'
-                : 'border-[#39FF14] bg-black/90 shadow-[0_0_16px_rgba(57,255,20,0.9)]'
+                ? 'border-[#EF4444] bg-black/90 shadow-[0_0_12px_rgba(239,68,68,0.9)]'
+                : 'border-[#39FF14] bg-black/90 shadow-[0_0_12px_rgba(57,255,20,0.9)]'
               : 'border-white/30 bg-zinc-900/90'
           } flex items-center justify-center text-white">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${
               isSelected
                 ? isSelectedNonPreferred
                   ? '#EF4444'
@@ -211,10 +220,10 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
               <path d="M2 7h20"/>
             </svg>
           </div>
-          <div class="bg-black/80 backdrop-blur-md border ${
+          <div class="bg-black/95  border ${
             isSelectedNonPreferred ? 'border-red-500/50' : 'border-white/15'
-          } px-2 py-1 rounded-lg mt-1 text-center shadow-lg max-w-[110px]">
-            <span class="text-[9px] font-bold ${
+          } px-1.5 py-0.5 rounded mt-1 text-center shadow-md max-w-[90px]">
+            <span class="text-[8px] font-bold ${
               isSelectedNonPreferred ? 'text-red-300' : 'text-white'
             } truncate block leading-tight">
               ${sede.NOMBRE_SEDE.split('-')[0].trim()}
@@ -226,8 +235,8 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       const icon = L.divIcon({
         html: markerHtml,
         className: 'bg-transparent',
-        iconSize: [110, 80],
-        iconAnchor: [55, 45],
+        iconSize: [100, 70],
+        iconAnchor: [50, 45],
       });
 
       const marker = L.marker([sLat, sLng], { icon }).addTo(map);
@@ -258,36 +267,14 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       <div class="select-none flex flex-col items-center justify-center relative ${
         isManualPinMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
       }">
-        <!-- Pulse ring in manual pin adjustment mode -->
-        ${
-          isManualPinMode
-            ? '<div class="absolute top-1 w-10 h-10 rounded-full bg-red-500/35 animate-ping pointer-events-none"></div>'
-            : ''
-        }
-
-        <!-- Minimalist Red Pin SVG -->
-        <div class="relative flex items-center justify-center filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)] transition-transform duration-150 ${
+        <!-- Minimalist Red Pin SVG with transparent hole -->
+        <div class="relative flex items-center justify-center ${
           isManualPinMode ? 'scale-115' : 'hover:scale-105'
         }">
-          <svg width="32" height="42" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- Pin Body -->
-            <path
-              d="M12 0C5.37 0 0 5.37 0 12C0 20.5 12 32 12 32C12 32 24 20.5 24 12C24 5.37 18.63 0 12 0Z"
-              fill="${isManualPinMode ? '#FF3838' : '#EF4444'}"
-            />
-            <!-- Subtle lighting highlight -->
-            <path
-              d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12C1.5 14.8 2.6 18 4.5 21.2C3.3 18.5 2.8 15.3 2.8 12C2.8 6.9 6.9 2.8 12 2.8C15.2 2.8 18 4.4 19.8 6.8C18.3 3.6 15.4 1.5 12 1.5Z"
-              fill="white"
-              fill-opacity="0.3"
-            />
-            <!-- Center Dot -->
-            <circle cx="12" cy="11" r="3.8" fill="white" />
+          <svg width="32" height="38" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 3.8a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 1 1 0-6.4z" fill="${isManualPinMode ? '#ef4444' : '#dc2626'}"/>
           </svg>
         </div>
-
-        <!-- Ground Contact Shadow Dot -->
-        <div class="w-3.5 h-1 bg-black/45 rounded-full blur-[0.8px] -mt-0.5"></div>
 
         ${
           isManualPinMode
@@ -389,8 +376,8 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
     <div id="delivery-map-container" className={`relative w-full h-full min-h-[300px] overflow-hidden ${isManualPinMode ? 'cursor-crosshair' : ''}`}>
       {/* Map DOM Element */}
       <div ref={mapContainerRef} className="w-full h-full" />
-      {/* Capa superpuesta traslúcida azulada para aclarar el mapa */}
-      <div className="absolute inset-0 bg-slate-600/15 bg-gradient-to-tr from-blue-950/20 to-slate-800/15 pointer-events-none z-[100]" />
+      {/* Overlay translúcido para integrar los mapas oscuro a la interfaz de la app */}
+      <div className="absolute inset-0 bg-slate-600/10 bg-gradient-to-tr from-blue-950/10 to-slate-800/10 pointer-events-none z-[100] mix-blend-screen" />
     </div>
   );
 };

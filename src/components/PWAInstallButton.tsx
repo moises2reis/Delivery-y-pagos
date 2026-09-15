@@ -16,7 +16,7 @@ export const PWAInstallButton: React.FC = () => {
     return (
       <button
         onClick={install}
-        className="flex items-center gap-2 rounded-xl bg-sky-600 px-3.5 py-2 text-sm font-semibold text-white shadow-md hover:bg-sky-500 transition active:scale-95"
+        className="flex items-center gap-2 rounded-xl bg-sky-600 px-3.5 py-2 text-sm font-semibold text-white shadow-md hover:bg-sky-500  active:scale-95"
         title="Instalar App nativa en tu dispositivo"
       >
         <Download className="w-4 h-4" />
@@ -31,7 +31,7 @@ export const PWAInstallButton: React.FC = () => {
       <>
         <button
           onClick={() => setShowIOSGuide(true)}
-          className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 transition active:scale-95 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300 dark:hover:bg-sky-900"
+          className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100  active:scale-95 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300 dark:hover:bg-sky-900"
           title="Instalar en iPhone / iPad"
         >
           <Smartphone className="w-4 h-4" />
@@ -39,7 +39,7 @@ export const PWAInstallButton: React.FC = () => {
         </button>
 
         {showIOSGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60  p-4">
             <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2.5 rounded-xl bg-sky-100 dark:bg-sky-900/50 text-sky-600 dark:text-sky-400">
@@ -57,7 +57,7 @@ export const PWAInstallButton: React.FC = () => {
               </ol>
               <button
                 onClick={() => setShowIOSGuide(false)}
-                className="mt-5 w-full rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500 transition shadow-sm"
+                className="mt-5 w-full rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-500  shadow-sm"
               >
                 Entendido
               </button>
@@ -72,7 +72,7 @@ export const PWAInstallButton: React.FC = () => {
   return (
     <button
       onClick={() => alert("Para instalar esta aplicación como app nativa de escritorio o móvil, haz clic en el menú de opciones de tu navegador (los 3 puntos o icono de instalación en la barra de direcciones) y selecciona 'Instalar aplicación'.")}
-      className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+      className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50  shadow-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
       title="Instrucciones para instalar app"
     >
       <Download className="w-4 h-4 text-sky-600" />

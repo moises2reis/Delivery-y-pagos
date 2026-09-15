@@ -23,6 +23,8 @@ export interface Sede {
 
 export type RoutingService = 'osrm' | 'openrouteservice';
 
+export type MapTheme = 'dark' | 'light' | 'voyager' | 'satellite' | 'osm';
+
 export interface RouteCalculation {
   distanceKm: number;
   durationMin: number;

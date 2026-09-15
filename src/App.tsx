@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Sede, AppSettings, DeliveryRecord, RouteCalculation, RoutingService } from './types';
+import { Sede, AppSettings, DeliveryRecord, RouteCalculation, RoutingService, MapTheme } from './types';
 import { DEFAULT_SEDES, DEFAULT_WEBHOOK_URL, STORAGE_KEYS } from './data/defaultSedes';
 import {
   calcularRutaPorServicio,
@@ -29,6 +29,10 @@ import {
   ChevronDown,
   Route,
   Check,
+  Moon,
+  Sun,
+  Compass,
+  Globe,
 } from 'lucide-react';
 
 import { PaymentVerification } from './components/PaymentVerification';
@@ -118,6 +122,8 @@ export default function App() {
   const [isSendingToSheet, setIsSendingToSheet] = useState(false);
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
   const [isServiceMenuOpen, setIsServiceMenuOpen] = useState(false);
+  const [mapTheme, setMapTheme] = useState<MapTheme>('dark');
+  const [showInitialSedePrompt, setShowInitialSedePrompt] = useState(() => !localStorage.getItem(STORAGE_KEYS.PREFERRED_SEDE));
   const serviceMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Close service menu on outside click
@@ -359,17 +365,23 @@ export default function App() {
       timestamp: Date.now(),
     };
 
-    const res = await enviarDeliveryASheet(newRecord, settings.webhookUrl);
+    // Actualización optimista de la UI: 
+    // asumimos que se enviará correctamente e instantáneamente limpiamos.
+    setHistory((prev) => [newRecord, ...prev]);
+    setClientName('');
+    setClientPhone('');
 
-    if (res.success) {
-      setHistory((prev) => [newRecord, ...prev]);
-      setClientName('');
-      setClientPhone('');
-    } else {
-      setHistory((prev) => [{ ...newRecord, estadoEnvio: 'error' }, ...prev]);
-    }
+    // Pequeño timeout solo para dar la sensación visual de click/enviado
+    setTimeout(() => setIsSendingToSheet(false), 300);
 
-    setIsSendingToSheet(false);
+    // Fire and forget al webhook en background
+    enviarDeliveryASheet(newRecord, settings.webhookUrl).then((res) => {
+      if (!res.success) {
+        setHistory((prev) =>
+          prev.map((r) => (r.id === newRecord.id ? { ...r, estadoEnvio: 'error' } : r))
+        );
+      }
+    });
   };
 
   // Resend record from history
@@ -388,7 +400,7 @@ export default function App() {
       {isMobilePanelOpen && (
         <div
           onClick={() => setIsMobilePanelOpen(false)}
-          className="md:hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-[940] transition-opacity animate-in fade-in duration-200"
+          className="md:hidden fixed inset-0 bg-black/95  z-[940]    "
         />
       )}
 
@@ -396,7 +408,7 @@ export default function App() {
           VISTA 1: PANEL LATERAL / DRAWER DESPLEGABLE EN MÓVIL
           ========================================================================= */}
       <aside
-        className={`fixed md:relative inset-x-0 bottom-0 z-[950] md:z-20 w-full md:w-[380px] lg:w-[420px] flex-shrink-0 max-h-[85dvh] md:max-h-none h-auto md:h-full bg-black backdrop-blur-2xl md:backdrop-blur-none border-t md:border-t-0 md:border-r border-white/15 rounded-t-3xl md:rounded-none flex flex-col shadow-[0_-20px_50px_rgba(0,0,0,0.95)] md:shadow-[10px_0_30px_rgba(0,0,0,0.7)] transition-transform duration-300 ease-out ${
+        className={`fixed md:relative inset-x-0 bottom-0 z-[950] md:z-20 w-full md:w-[380px] lg:w-[420px] flex-shrink-0 max-h-[85dvh] md:max-h-none h-auto md:h-full bg-black md:border-t md:border-t-0 md:border-r border-white/15 rounded-t-3xl md:rounded-none flex flex-col shadow-[0_-5px_15px_rgba(0,0,0,0.5)] md:shadow-[5px_0_15px_rgba(0,0,0,0.5)] ease-out ${
           isMobilePanelOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'
         }`}
       >
@@ -415,7 +427,7 @@ export default function App() {
                   type="button"
                   onClick={() => setIsHistoryOpen(true)}
                   title="Historial de envíos"
-                  className="relative w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-zinc-300 hover:text-white transition-all cursor-pointer active:scale-95"
+                  className="relative w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-zinc-300 hover:text-white  cursor-pointer active:scale-95"
                 >
                   <History className="w-4 h-4" />
                   <span className="absolute -top-1 -right-1 bg-[#00FF00] text-black text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-[0_0_8px_#00FF00]">
@@ -429,7 +441,7 @@ export default function App() {
                 type="button"
                 onClick={() => setIsMobilePanelOpen(false)}
                 title="Cerrar panel"
-                className="md:hidden w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-zinc-300 hover:text-white transition-all cursor-pointer active:scale-95"
+                className="md:hidden w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/15 flex items-center justify-center text-zinc-300 hover:text-white  cursor-pointer active:scale-95"
               >
                 <ChevronDown className="w-4 h-4" />
               </button>
@@ -454,7 +466,7 @@ export default function App() {
                     setPreferredSede(found);
                   }
                 }}
-                className="bg-black/80 border border-amber-500/40 rounded-lg text-[11px] font-bold text-amber-200 focus:outline-none focus:border-amber-400 cursor-pointer px-2.5 py-1 truncate max-w-[180px]"
+                className="bg-black/95 border border-amber-500/40 rounded-lg text-[11px] font-bold text-amber-200 focus:outline-none focus:border-amber-400 cursor-pointer px-2.5 py-1 truncate max-w-[180px]"
               >
                 {sedes.map((s) => (
                   <option key={s.ID_SEDE} value={s.ID_SEDE} className="bg-zinc-950 text-white">
@@ -481,13 +493,13 @@ export default function App() {
                   </label>
                   {selectedSede.ID_SEDE !== preferredSede.ID_SEDE && (
                     <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 " />
                       No preferida
                     </span>
                   )}
                 </div>
                 <div
-                  className={`flex items-center gap-2 border rounded-xl px-3.5 py-2 transition-all ${
+                  className={`flex items-center gap-2 border rounded-xl px-3.5 py-2  ${
                     selectedSede.ID_SEDE !== preferredSede.ID_SEDE
                       ? 'bg-red-950/25 border-red-500/70 shadow-[0_0_15px_rgba(239,68,68,0.25)]'
                       : 'bg-white/5 hover:bg-white/10 border-white/15'
@@ -538,7 +550,7 @@ export default function App() {
                 </label>
                 <div className="space-y-2">
                   {/* Nombre Cliente */}
-                  <div className="relative flex items-center bg-white/5 focus-within:bg-white/10 border border-white/15 focus-within:border-[#00FF00]/70 rounded-xl px-3.5 py-2 transition-all">
+                  <div className="relative flex items-center bg-white/5 focus-within:bg-white/10 border border-white/15 focus-within:border-[#00FF00]/70 rounded-xl px-3.5 py-2 ">
                     <User className="w-4 h-4 text-zinc-400 mr-2.5 flex-shrink-0 pointer-events-none" />
                     <input
                       type="text"
@@ -550,7 +562,7 @@ export default function App() {
                   </div>
 
                   {/* Teléfono */}
-                  <div className="relative flex items-center bg-white/5 focus-within:bg-white/10 border border-white/15 focus-within:border-[#00FF00]/70 rounded-xl px-3.5 py-2 transition-all">
+                  <div className="relative flex items-center bg-white/5 focus-within:bg-white/10 border border-white/15 focus-within:border-[#00FF00]/70 rounded-xl px-3.5 py-2 ">
                     <Phone className="w-4 h-4 text-zinc-400 mr-2.5 flex-shrink-0 pointer-events-none" />
                     <input
                       type="tel"
@@ -571,7 +583,7 @@ export default function App() {
                 <div className="flex items-center gap-2 py-1 px-1">
                   <div className="text-xs font-semibold truncate">
                     {isGeocodingLoading ? (
-                      <span className="text-zinc-400 italic animate-pulse">Detectando zona...</span>
+                      <span className="text-zinc-400 italic ">Detectando zona...</span>
                     ) : zoneText.trim() ? (
                       <span className="text-white font-medium">{zoneText}</span>
                     ) : (
@@ -593,12 +605,12 @@ export default function App() {
                   type="button"
                   onClick={() => setIsServiceMenuOpen((prev) => !prev)}
                   title="Cambiar servicio de enrutamiento"
-                  className="w-full flex items-center justify-between bg-black/60 hover:bg-black/80 border border-white/10 hover:border-white/20 rounded-xl px-3 py-1.5 transition-all text-left cursor-pointer group"
+                  className="w-full flex items-center justify-between bg-black/60 hover:bg-black/95 border border-white/10 hover:border-white/20 rounded-xl px-3 py-1.5  text-left cursor-pointer group"
                 >
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-2 w-2 flex-shrink-0">
                       <span
-                        className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                        className={` absolute inline-flex h-full w-full rounded-full opacity-75 ${
                           isCalculatingRoute
                             ? 'bg-amber-400'
                             : routingService === 'openrouteservice'
@@ -633,14 +645,14 @@ export default function App() {
                     </div>
                   </div>
 
-                  <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 group-hover:text-white transition-transform duration-200 flex-shrink-0 ${isServiceMenuOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 group-hover:text-white   flex-shrink-0 ${isServiceMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {/* Menú Desplegable de Selección de Servicio */}
                 {isServiceMenuOpen && (
                   <div
                     id="routing-service-dropdown"
-                    className="absolute bottom-full mb-1 left-0 right-0 bg-zinc-950/98 backdrop-blur-2xl border border-white/20 rounded-xl shadow-[0_12px_35px_rgba(0,0,0,0.85)] p-1.5 flex flex-col gap-1 z-50 animate-in fade-in zoom-in-95 duration-150"
+                    className="absolute bottom-full mb-1 left-0 right-0 bg-zinc-950/98  border border-white/20 rounded-xl shadow-[0_12px_35px_rgba(0,0,0,0.85)] p-1.5 flex flex-col gap-1 z-50    "
                   >
                     <div className="px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 border-b border-white/10 mb-0.5">
                       Seleccionar Motor de Ruta
@@ -653,7 +665,7 @@ export default function App() {
                         handleChangeRoutingService('osrm');
                         setIsServiceMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left  ${
                         routingService === 'osrm'
                           ? 'bg-[#00FF00]/15 border border-[#00FF00]/40 text-[#00FF00]'
                           : 'text-zinc-200 hover:bg-white/10 hover:text-white border border-transparent'
@@ -676,7 +688,7 @@ export default function App() {
                         handleChangeRoutingService('openrouteservice');
                         setIsServiceMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left  ${
                         routingService === 'openrouteservice'
                           ? 'bg-cyan-500/15 border border-cyan-400/40 text-cyan-300'
                           : 'text-zinc-200 hover:bg-white/10 hover:text-white border border-transparent'
@@ -695,11 +707,47 @@ export default function App() {
                 )}
               </div>
 
+              {/* Tema de Mapa */}
+              <div className="mt-4">
+                <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider mb-1 block">
+                  Tema de Mapa
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    onClick={() => setMapTheme('dark')}
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors ${
+                      mapTheme === 'dark' ? 'border-[#00FF00] text-[#00FF00] shadow-[0_0_15px_rgba(0,255,0,0.15)]' : 'border-white/10 text-zinc-400'
+                    }`}
+                  >
+                    <Moon className="w-3.5 h-3.5 mb-1" />
+                    <span className="text-[8px] font-bold uppercase tracking-wider">Oscuro</span>
+                  </button>
+                  <button
+                    onClick={() => setMapTheme('voyager')}
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors ${
+                      mapTheme === 'voyager' ? 'border-amber-400 text-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.15)]' : 'border-white/10 text-zinc-400'
+                    }`}
+                  >
+                    <Compass className="w-3.5 h-3.5 mb-1" />
+                    <span className="text-[8px] font-bold uppercase tracking-wider">Calles (Claro)</span>
+                  </button>
+                  <button
+                    onClick={() => setMapTheme('satellite')}
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors ${
+                      mapTheme === 'satellite' ? 'border-green-400 text-green-400 shadow-[0_0_15px_rgba(74,222,128,0.15)]' : 'border-white/10 text-zinc-400'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5 mb-1" />
+                    <span className="text-[8px] font-bold uppercase tracking-wider">Satélite</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Botón Ver Mapa en Móvil */}
               <button
                 type="button"
                 onClick={() => setIsMobilePanelOpen(false)}
-                className="md:hidden w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all mt-3 cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+                className="md:hidden w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-white/10 hover:bg-white/15 text-white border border-white/15  mt-3 cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
               >
                 <ChevronDown className="w-4 h-4" />
                 <span>Ver Mapa y Ruta</span>
@@ -719,14 +767,14 @@ export default function App() {
           <ViewSwitcher activeView={activeView} onViewChange={setActiveView} className="md:hidden" />
 
           <div
-            className={`w-full flex items-center bg-black/80 hover:bg-black/95 backdrop-blur-2xl border ${
+            className={`w-full flex items-center bg-black/95 hover:bg-black/95  border ${
               isManualPinMode
                 ? 'border-[#00FF00] ring-2 ring-[#00FF00]/40 shadow-[0_0_20px_rgba(0,255,0,0.35)]'
                 : 'border-white/20 focus-within:border-[#00FF00]/70'
-            } rounded-full pl-3.5 pr-1.5 py-1.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_8px_30px_rgba(0,0,0,0.6)] transition-all gap-1.5`}
+            } rounded-full pl-3.5 pr-1.5 py-1.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_8px_30px_rgba(0,0,0,0.6)]  gap-1.5`}
           >
             <MapPin
-              className={`w-4 h-4 flex-shrink-0 transition-colors ${
+              className={`w-4 h-4 flex-shrink-0 -colors ${
                 destinationCoords ? 'text-red-500 fill-red-500/20' : 'text-zinc-500'
               }`}
             />
@@ -763,7 +811,7 @@ export default function App() {
                   setSedeDifferenceAlert(null);
                 }}
                 title="Limpiar coordenadas"
-                className="w-6 h-6 rounded-full flex items-center justify-center transition-all flex-shrink-0 bg-white/10 hover:bg-white/20 text-zinc-400 hover:text-white cursor-pointer active:scale-90"
+                className="w-6 h-6 rounded-full flex items-center justify-center  flex-shrink-0 bg-white/10 hover:bg-white/20 text-zinc-400 hover:text-white cursor-pointer active:scale-90"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -775,7 +823,7 @@ export default function App() {
               type="button"
               onClick={handleToggleManualPin}
               title={isManualPinMode ? 'Aceptar ubicación del pin' : 'Ajustar pin en el mapa'}
-              className={`w-7 h-7 rounded-full flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
+              className={`w-7 h-7 rounded-full flex items-center justify-center  flex-shrink-0 cursor-pointer ${
                 isManualPinMode
                   ? 'bg-[#00FF00] text-black shadow-[0_0_14px_#00FF00]'
                   : 'bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white'
@@ -799,6 +847,7 @@ export default function App() {
           routingService={routingService}
           onChangeRoutingService={handleChangeRoutingService}
           isManualPinMode={isManualPinMode}
+          mapTheme={mapTheme}
           onAcceptManualPin={handleAcceptManualPin}
           onCancelManualPin={handleCancelManualPin}
           isCalculatingRoute={isCalculatingRoute}
@@ -814,10 +863,10 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsMobilePanelOpen(true)}
-              className="md:hidden flex items-center justify-between w-full bg-black/80 hover:bg-black/90 backdrop-blur-xl border border-white/20 rounded-2xl py-2 px-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.6)] text-left text-xs transition-all active:scale-[0.99] cursor-pointer"
+              className="md:hidden flex items-center justify-between w-full bg-black/95 hover:bg-black/95  border border-white/20 rounded-2xl py-2 px-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.6)] text-left text-xs  active:scale-[0.99] cursor-pointer"
             >
               <div className="flex items-center gap-2 truncate">
-                <span className="w-2 h-2 rounded-full bg-[#00FF00] animate-pulse flex-shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-[#00FF00]  flex-shrink-0" />
                 <span className="font-bold text-white text-xs truncate">
                   Abrir panel
                 </span>
@@ -826,15 +875,15 @@ export default function App() {
             </button>
 
             {/* Pastillas Separadas y Redondeadas: Tiempo, Distancia, Tarifa */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2 relative z-30">
               {/* Tiempo */}
-              <div className="bg-black/50 backdrop-blur-2xl border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_8px_25px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center text-center">
+              <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
                 <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
                   Tiempo
                 </span>
                 <div className="text-xs sm:text-sm font-black text-white mt-0.5">
                   {isCalculatingRoute ? (
-                    <span className="text-zinc-500 text-xs animate-pulse">...</span>
+                    <span className="text-zinc-500 text-xs ">...</span>
                   ) : routeData ? (
                     `${routeData.durationMin} min`
                   ) : (
@@ -844,13 +893,13 @@ export default function App() {
               </div>
 
               {/* Distancia */}
-              <div className="bg-black/50 backdrop-blur-2xl border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_8px_25px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center text-center">
+              <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
                 <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
                   Distancia
                 </span>
                 <div className="text-xs sm:text-sm font-black text-white mt-0.5">
                   {isCalculatingRoute ? (
-                    <span className="text-zinc-500 text-xs animate-pulse">...</span>
+                    <span className="text-zinc-500 text-xs ">...</span>
                   ) : routeData ? (
                     `${routeData.distanceKm.toFixed(1)} km`
                   ) : (
@@ -860,7 +909,7 @@ export default function App() {
               </div>
 
               {/* Tarifa */}
-              <div className="bg-black/50 backdrop-blur-2xl border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_8px_25px_rgba(0,0,0,0.5)] flex flex-col items-center justify-center text-center">
+              <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
                 <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
                   Tarifa
                 </span>
@@ -870,20 +919,32 @@ export default function App() {
               </div>
             </div>
 
-            {/* Botón Enviar (Rojo si no es la preferida, Verde si es la preferida) */}
-            <button
-              id="btn-enviar-appdelivery"
-              type="button"
-              onClick={handleSendToSheet}
-              disabled={isSendingToSheet}
-              className={`w-full py-3.5 px-6 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center transition-all border-2 cursor-pointer ${
-                selectedSede.ID_SEDE !== preferredSede.ID_SEDE
-                  ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-[0_0_35px_rgba(239,68,68,0.95)] hover:bg-[#dc2626]'
-                  : 'bg-[#00FF00] text-black border-[#00FF00] shadow-[0_0_35px_rgba(0,255,0,0.95)] hover:bg-[#1aff1a]'
-              } active:scale-[0.98]`}
-            >
-              {isSendingToSheet ? 'Enviando...' : 'Enviar'}
-            </button>
+            {/* Botón Enviar (Rojo si no es la preferida, Verde si es la preferida, Gris si deshabilitado) */}
+            <div className="relative z-10">
+              <button
+                id="btn-enviar-appdelivery"
+                type="button"
+                onClick={handleSendToSheet}
+                disabled={isSendingToSheet || !routeData || !destinationCoords}
+                className={`w-full py-3.5 px-6 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center border-2 ${
+                  isSendingToSheet || !routeData || !destinationCoords
+                    ? 'bg-zinc-800 text-zinc-500 border-zinc-700 shadow-none cursor-not-allowed'
+                    : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
+                      ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-[0_0_35px_rgba(239,68,68,0.95)] hover:bg-[#dc2626] cursor-pointer'
+                      : 'bg-[#00FF00] text-black border-[#00FF00] shadow-[0_0_35px_rgba(0,255,0,0.95)] hover:bg-[#1aff1a] cursor-pointer'
+                } active:scale-[0.98]`}
+              >
+                {isSendingToSheet
+                  ? 'Enviando...'
+                  : !routeData || !destinationCoords
+                    ? 'Esperando Ruta'
+                    : !isClosestSede
+                      ? 'Enviar (Ruta más Larga)'
+                      : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
+                        ? 'Enviar a la otra sede'
+                        : 'Enviar'}
+              </button>
+            </div>
           </div>
         </div>
       </main>
@@ -901,9 +962,9 @@ export default function App() {
       {sedeDifferenceAlert?.isOpen && (
         <div
           id="modal-sede-difference"
-          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95  p-4   "
         >
-          <div className="bg-[#111318] border border-white/15 rounded-2xl max-w-sm w-full p-5 shadow-[0_20px_50px_rgba(0,0,0,0.95)] flex flex-col gap-4 animate-in zoom-in-95 duration-150 text-white text-center">
+          <div className="bg-[#111318] border border-white/15 rounded-2xl max-w-sm w-full p-5 shadow-[0_20px_50px_rgba(0,0,0,0.95)] flex flex-col gap-4    text-white text-center">
             <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
               <MapPin className="w-5 h-5 text-amber-400" />
             </div>
@@ -928,7 +989,7 @@ export default function App() {
                   handleSelectSede(sedeDifferenceAlert.preferredSede);
                   setSedeDifferenceAlert(null);
                 }}
-                className="w-full bg-[#EF4444] hover:bg-[#dc2626] active:scale-95 text-white font-black text-xs py-3 px-3 rounded-xl transition-all shadow-[0_0_15px_rgba(239,68,68,0.4)] cursor-pointer"
+                className="w-full bg-[#EF4444] hover:bg-[#dc2626] active:scale-95 text-white font-black text-xs py-3 px-3 rounded-xl  shadow-[0_0_15px_rgba(239,68,68,0.4)] cursor-pointer"
               >
                 Mantenerse actual
               </button>
@@ -943,7 +1004,7 @@ export default function App() {
                   }
                   setSedeDifferenceAlert(null);
                 }}
-                className="w-full bg-[#00FF00] hover:bg-[#1aff1a] active:scale-95 text-black font-black text-xs py-3 px-3 rounded-xl transition-all shadow-[0_0_15px_rgba(0,255,0,0.4)] cursor-pointer"
+                className="w-full bg-[#00FF00] hover:bg-[#1aff1a] active:scale-95 text-black font-black text-xs py-3 px-3 rounded-xl  shadow-[0_0_15px_rgba(0,255,0,0.4)] cursor-pointer"
               >
                 Traspasar
               </button>
@@ -955,6 +1016,39 @@ export default function App() {
       {/* Payment Verification View */}
       {activeView === 'pagos' && (
         <PaymentVerification onClose={() => setActiveView('delivery')} />
+      )}
+
+      {/* Initial Sede Selection Modal */}
+      {showInitialSedePrompt && (
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/95 p-4">
+          <div className="bg-[#111318] border border-white/15 rounded-3xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-6 text-center animate-in zoom-in-95 duration-200">
+            <div>
+              <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-4">
+                <Store className="w-8 h-8 text-blue-400" />
+              </div>
+              <h2 className="text-xl font-black text-white mb-2">¡Bienvenido!</h2>
+              <p className="text-sm text-zinc-400">
+                Selecciona tu sede de operaciones principal.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              {sedes.map((sede) => (
+                <button
+                  key={sede.ID_SEDE}
+                  onClick={() => {
+                    setPreferredSede(sede);
+                    setSelectedSede(sede);
+                    localStorage.setItem(STORAGE_KEYS.PREFERRED_SEDE, sede.ID_SEDE);
+                    setShowInitialSedePrompt(false);
+                  }}
+                  className="w-full bg-zinc-900/80 hover:bg-zinc-800 border border-white/10 p-4 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-colors"
+                >
+                  <span className="text-white font-bold">{sede.NOMBRE_SEDE.split(',')[0]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       <OfflineIndicator />

@@ -21,7 +21,7 @@ export const ToastNotification: React.FC<ToastNotificationProps> = ({ toasts, on
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto p-3.5 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-start gap-3 transition-all animate-in slide-in-from-top-3 ${
+          className={`pointer-events-auto p-3.5 rounded-2xl border  shadow-2xl flex items-start gap-3    ${
             toast.type === 'success'
               ? 'bg-[#0A0A0B]/95 border-[#39FF14]/50 text-white shadow-[0_0_20px_rgba(57,255,20,0.25)]'
               : toast.type === 'error'
