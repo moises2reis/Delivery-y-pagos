@@ -1,0 +1,6 @@
+{
+  "name": "Cotizador y Envíos Delivery a Google Sheets",
+  "description": "Aplicación web responsive para PC y móvil para cotizar tarifas de delivery en tiempo real con mapa y registrar entregas directamente en Google Sheets.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

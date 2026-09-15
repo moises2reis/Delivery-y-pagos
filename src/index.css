@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/* Leaflet container fixes */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  font-family: inherit;
+  z-index: 10;
+  background: #18181b;
+}
+
+/* Custom Marker Styling */
+.custom-pin-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.pin-pulse {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.35);
+  animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  80%, 100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.glow-green {
+  box-shadow: 0 0 15px rgba(57, 255, 20, 0.6);
+}
+
+.glow-orange {
+  box-shadow: 0 0 15px rgba(255, 140, 0, 0.6);
+}
+
+.glow-red {
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.7);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+/* SVG Icon fixes for line-art icons (Lucide style) */
+svg.ic,
+.ic,
+svg.ic *,
+.ic * {
+  fill: none !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+svg.ic {
+  stroke-width: 2px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}

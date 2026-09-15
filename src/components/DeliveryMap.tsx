@@ -1,0 +1,397 @@
+import React, { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
+import { RoutingService, Sede } from '../types';
+import { Route, Navigation, Check, ChevronDown } from 'lucide-react';
+
+const CARTO_API_KEY = (import.meta as any).env?.VITE_CARTO_API_KEY || 'cb1_2y4n_1_a3bf62a7af9beccb1b129b78';
+
+const getTileUrl = (theme: 'dark' | 'light') => {
+  if (theme === 'dark') {
+    return `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
+  }
+  return `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?api_key=${CARTO_API_KEY}&key=${CARTO_API_KEY}`;
+};
+
+interface DeliveryMapProps {
+  sedes: Sede[];
+  selectedSede: Sede;
+  preferredSede?: Sede;
+  onSelectSede: (sede: Sede) => void;
+  destinationCoords: { lat: number; lng: number } | null;
+  onDestinationChange: (coords: { lat: number; lng: number }) => void;
+  routeGeometry: any | null;
+  isAlternateRoute?: boolean;
+  isClosestSede?: boolean;
+  routingService?: RoutingService;
+  onToggleRoutingService?: () => void;
+  onChangeRoutingService?: (service: RoutingService) => void;
+  isManualPinMode: boolean;
+  onAcceptManualPin?: (coords?: { lat: number; lng: number }) => void;
+  onCancelManualPin?: () => void;
+  onCoordsLiveUpdate?: (coords: { lat: number; lng: number }) => void;
+  isCalculatingRoute?: boolean;
+}
+
+export const DeliveryMap: React.FC<DeliveryMapProps> = ({
+  sedes,
+  selectedSede,
+  preferredSede,
+  onSelectSede,
+  destinationCoords,
+  onDestinationChange,
+  routeGeometry,
+  isAlternateRoute = false,
+  isClosestSede = true,
+  routingService = 'osrm',
+  onToggleRoutingService,
+  onChangeRoutingService,
+  isManualPinMode,
+  onAcceptManualPin,
+  onCancelManualPin,
+  onCoordsLiveUpdate,
+  isCalculatingRoute,
+}) => {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const sedeMarkersRef = useRef<L.Marker[]>([]);
+  const userMarkerRef = useRef<L.Marker | null>(null);
+  const routeLayerRef = useRef<L.GeoJSON | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  // Store current interactive pin coords
+  const currentPinCoordsRef = useRef<{ lat: number; lng: number } | null>(destinationCoords);
+  const [localCoords, setLocalCoords] = useState<{ lat: number; lng: number } | null>(destinationCoords);
+
+  // Keep callback refs fresh to avoid stale closures in Leaflet events
+  const onDestinationChangeRef = useRef(onDestinationChange);
+  onDestinationChangeRef.current = onDestinationChange;
+
+  const onCoordsLiveUpdateRef = useRef(onCoordsLiveUpdate);
+  onCoordsLiveUpdateRef.current = onCoordsLiveUpdate;
+
+  const isManualPinModeRef = useRef(isManualPinMode);
+  isManualPinModeRef.current = isManualPinMode;
+
+  const onAcceptManualPinRef = useRef(onAcceptManualPin);
+  onAcceptManualPinRef.current = onAcceptManualPin;
+
+  const [mapTheme] = useState<'dark' | 'light'>('dark');
+
+  // Keep local coords in sync when destinationCoords changes externally
+  useEffect(() => {
+    currentPinCoordsRef.current = destinationCoords;
+    setLocalCoords(destinationCoords);
+  }, [destinationCoords]);
+
+  // Pan to destination when entering manual pin mode so the user sees it immediately
+  useEffect(() => {
+    if (isManualPinMode && destinationCoords && mapInstanceRef.current) {
+      mapInstanceRef.current.panTo([destinationCoords.lat, destinationCoords.lng], {
+        animate: true,
+        duration: 0.4,
+      });
+    }
+  }, [isManualPinMode]);
+
+  // Initialize Map
+  useEffect(() => {
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
+
+    const [initLat, initLng] = selectedSede.COORDENADAS_SEDE.split(',').map((s) => parseFloat(s.trim()));
+    const initialCenter: [number, number] = [!isNaN(initLat) ? initLat : 10.2487, !isNaN(initLng) ? initLng : -68.0102];
+
+    const map = L.map(mapContainerRef.current, {
+      center: initialCenter,
+      zoom: 14,
+      zoomControl: false,
+      attributionControl: false,
+    });
+
+    const tileUrl = getTileUrl(mapTheme);
+    const tiles = L.tileLayer(tileUrl, {
+      subdomains: 'abcd',
+      maxZoom: 20,
+      attribution: '',
+    }).addTo(map);
+    tileLayerRef.current = tiles;
+
+    // Map click handler - ONLY active when manual pin mode (lápiz) is enabled
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      if (isManualPinModeRef.current) {
+        const clicked = { lat: e.latlng.lat, lng: e.latlng.lng };
+        currentPinCoordsRef.current = clicked;
+        setLocalCoords(clicked);
+        if (userMarkerRef.current) {
+          userMarkerRef.current.setLatLng(e.latlng);
+        }
+        onCoordsLiveUpdateRef.current?.(clicked);
+        onDestinationChangeRef.current(clicked);
+        // Al tocar en el mapa el modo edición se bloquea y queda fija
+        onAcceptManualPinRef.current?.(clicked);
+      }
+    });
+
+    mapInstanceRef.current = map;
+
+    // ResizeObserver for robust layout changes
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    resizeObserver.observe(mapContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  // Update Tile Layer when theme changes
+  useEffect(() => {
+    if (!mapInstanceRef.current || !tileLayerRef.current) return;
+    mapInstanceRef.current.removeLayer(tileLayerRef.current);
+
+    const tileUrl = getTileUrl(mapTheme);
+    const tiles = L.tileLayer(tileUrl, {
+      subdomains: 'abcd',
+      maxZoom: 20,
+      attribution: '',
+    }).addTo(mapInstanceRef.current);
+    tileLayerRef.current = tiles;
+  }, [mapTheme]);
+
+  // Render Sede Markers
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // Clear previous sede markers
+    sedeMarkersRef.current.forEach((m) => m.remove());
+    sedeMarkersRef.current = [];
+
+    sedes.forEach((sede) => {
+      const [sLat, sLng] = sede.COORDENADAS_SEDE.split(',').map((s) => parseFloat(s.trim()));
+      if (isNaN(sLat) || isNaN(sLng)) return;
+
+      const isSelected = sede.ID_SEDE === selectedSede.ID_SEDE;
+      const isPreferred = preferredSede ? sede.ID_SEDE === preferredSede.ID_SEDE : true;
+      const isSelectedNonPreferred = isSelected && !isPreferred;
+
+      const markerHtml = `
+        <div class="custom-pin-marker cursor-pointer select-none transition-transform duration-200 hover:scale-110 ${
+          isSelected ? 'z-[600] scale-105' : 'opacity-85 z-[400]'
+        }">
+          ${
+            isSelected
+              ? isSelectedNonPreferred
+                ? `<div class="bg-[#EF4444] text-white text-[9px] font-black px-2 py-0.5 rounded-full border border-red-300 uppercase shadow-[0_0_12px_rgba(239,68,68,0.9)] whitespace-nowrap mb-1">
+                    SEDE NO PREFERIDA
+                  </div>`
+                : `<div class="bg-lime-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full border border-lime-300 uppercase shadow-[0_0_12px_rgba(57,255,20,0.8)] whitespace-nowrap mb-1">
+                    SEDE ACTIVA
+                  </div>`
+              : ''
+          }
+          <div class="w-10 h-10 rounded-full border-2 ${
+            isSelected
+              ? isSelectedNonPreferred
+                ? 'border-[#EF4444] bg-black/90 shadow-[0_0_16px_rgba(239,68,68,0.9)]'
+                : 'border-[#39FF14] bg-black/90 shadow-[0_0_16px_rgba(57,255,20,0.9)]'
+              : 'border-white/30 bg-zinc-900/90'
+          } flex items-center justify-center text-white">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${
+              isSelected
+                ? isSelectedNonPreferred
+                  ? '#EF4444'
+                  : '#39FF14'
+                : '#ffffff'
+            }" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+              <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>
+              <path d="M2 7h20"/>
+            </svg>
+          </div>
+          <div class="bg-black/80 backdrop-blur-md border ${
+            isSelectedNonPreferred ? 'border-red-500/50' : 'border-white/15'
+          } px-2 py-1 rounded-lg mt-1 text-center shadow-lg max-w-[110px]">
+            <span class="text-[9px] font-bold ${
+              isSelectedNonPreferred ? 'text-red-300' : 'text-white'
+            } truncate block leading-tight">
+              ${sede.NOMBRE_SEDE.split('-')[0].trim()}
+            </span>
+          </div>
+        </div>
+      `;
+
+      const icon = L.divIcon({
+        html: markerHtml,
+        className: 'bg-transparent',
+        iconSize: [110, 80],
+        iconAnchor: [55, 45],
+      });
+
+      const marker = L.marker([sLat, sLng], { icon }).addTo(map);
+      marker.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        onSelectSede(sede);
+      });
+
+      sedeMarkersRef.current.push(marker);
+    });
+  }, [sedes, selectedSede, preferredSede]);
+
+  // Render Destination Marker (Accurate needle anchor & smooth drag)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.remove();
+      userMarkerRef.current = null;
+    }
+
+    const activeCoords = localCoords || destinationCoords;
+    if (!activeCoords) return;
+
+    // Minimalist Red Pin with precise anchor at bottom tip
+    const userPinHtml = `
+      <div class="select-none flex flex-col items-center justify-center relative ${
+        isManualPinMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+      }">
+        <!-- Pulse ring in manual pin adjustment mode -->
+        ${
+          isManualPinMode
+            ? '<div class="absolute top-1 w-10 h-10 rounded-full bg-red-500/35 animate-ping pointer-events-none"></div>'
+            : ''
+        }
+
+        <!-- Minimalist Red Pin SVG -->
+        <div class="relative flex items-center justify-center filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)] transition-transform duration-150 ${
+          isManualPinMode ? 'scale-115' : 'hover:scale-105'
+        }">
+          <svg width="32" height="42" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Pin Body -->
+            <path
+              d="M12 0C5.37 0 0 5.37 0 12C0 20.5 12 32 12 32C12 32 24 20.5 24 12C24 5.37 18.63 0 12 0Z"
+              fill="${isManualPinMode ? '#FF3838' : '#EF4444'}"
+            />
+            <!-- Subtle lighting highlight -->
+            <path
+              d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12C1.5 14.8 2.6 18 4.5 21.2C3.3 18.5 2.8 15.3 2.8 12C2.8 6.9 6.9 2.8 12 2.8C15.2 2.8 18 4.4 19.8 6.8C18.3 3.6 15.4 1.5 12 1.5Z"
+              fill="white"
+              fill-opacity="0.3"
+            />
+            <!-- Center Dot -->
+            <circle cx="12" cy="11" r="3.8" fill="white" />
+          </svg>
+        </div>
+
+        <!-- Ground Contact Shadow Dot -->
+        <div class="w-3.5 h-1 bg-black/45 rounded-full blur-[0.8px] -mt-0.5"></div>
+
+        ${
+          isManualPinMode
+            ? `<div class="bg-black/90 text-white border border-red-500/60 font-bold text-[9px] px-2 py-0.5 rounded-md shadow-lg mt-1 whitespace-nowrap">
+                Arrastra al punto exacto
+              </div>`
+            : ''
+        }
+      </div>
+    `;
+
+    const icon = L.divIcon({
+      html: userPinHtml,
+      className: 'bg-transparent',
+      iconSize: [80, 55],
+      iconAnchor: [40, 42], // Exactly at the needle tip of the SVG pin
+    });
+
+    const marker = L.marker([activeCoords.lat, activeCoords.lng], {
+      icon,
+      draggable: isManualPinMode,
+      autoPan: true,
+    }).addTo(map);
+
+    marker.on('dragstart', () => {
+      marker.setZIndexOffset(1000);
+    });
+
+    marker.on('drag', () => {
+      const pos = marker.getLatLng();
+      const updated = { lat: pos.lat, lng: pos.lng };
+      currentPinCoordsRef.current = updated;
+      setLocalCoords(updated);
+      onCoordsLiveUpdateRef.current?.(updated);
+    });
+
+    marker.on('dragend', () => {
+      const pos = marker.getLatLng();
+      const updated = { lat: pos.lat, lng: pos.lng };
+      currentPinCoordsRef.current = updated;
+      setLocalCoords(updated);
+      onCoordsLiveUpdateRef.current?.(updated);
+      onDestinationChangeRef.current(updated);
+
+      if (isManualPinModeRef.current) {
+        onAcceptManualPinRef.current?.(updated);
+      }
+    });
+
+    userMarkerRef.current = marker;
+  }, [destinationCoords, isManualPinMode]);
+
+  // Render Route Polyline
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (routeLayerRef.current) {
+      routeLayerRef.current.remove();
+      routeLayerRef.current = null;
+    }
+
+    if (!routeGeometry) return;
+
+    // Color de ruta: Verde si es la sede más cercana, Rojo si se seleccionó una sede más lejana
+    let routeColor = isClosestSede ? '#39FF14' : '#EF4444';
+    let dashArray: string | undefined = undefined;
+
+    if (isAlternateRoute) {
+      routeColor = '#FF9800'; // Naranja Alterna
+      dashArray = '6, 8';
+    }
+
+    const layer = L.geoJSON(routeGeometry, {
+      style: {
+        color: routeColor,
+        weight: 5,
+        opacity: 0.95,
+        dashArray,
+      },
+    }).addTo(map);
+
+    routeLayerRef.current = layer;
+
+    // Fit bounds ONLY when NOT in manual pin adjustment mode to prevent camera jerking
+    if (!isManualPinMode) {
+      try {
+        map.fitBounds(layer.getBounds(), {
+          padding: [60, 60],
+          maxZoom: 16,
+        });
+      } catch (e) {
+        // Ignorar si bounds son inválidos
+      }
+    }
+  }, [routeGeometry, isAlternateRoute, routingService, isManualPinMode, isClosestSede]);
+
+  return (
+    <div id="delivery-map-container" className={`relative w-full h-full min-h-[300px] overflow-hidden ${isManualPinMode ? 'cursor-crosshair' : ''}`}>
+      {/* Map DOM Element */}
+      <div ref={mapContainerRef} className="w-full h-full" />
+      {/* Capa superpuesta traslúcida azulada para aclarar el mapa */}
+      <div className="absolute inset-0 bg-slate-600/15 bg-gradient-to-tr from-blue-950/20 to-slate-800/15 pointer-events-none z-[100]" />
+    </div>
+  );
+};
+
