@@ -1,6 +1,7 @@
 import { $, $$, toast, formatNumber } from '../core/utils.js';
 import { store } from '../core/store.js';
 import QRCode from 'qrcode';
+import { supabase } from '../core/supabase.js';
 
 export const VENEZUELAN_BANKS = [
   { code: '0102', name: 'Banco de Venezuela' },
@@ -110,9 +111,6 @@ async function callSupabase(action, payload) {
     clientIp: cachedClientIp
   };
 
-  // En lugar de llamar directamente a Supabase (lo cual genera un error CORS 
-  // porque el navegador bloquea el header 'x-region'), usamos nuestro proxy local.
-  // El proxy (server.ts) inyectará 'x-region: sa-east-1' limpiamente.
   const proxyPayload = {
     action,
     ...safePayload,
@@ -120,10 +118,10 @@ async function callSupabase(action, payload) {
     xRegion: 'sa-east-1'
   };
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-
+  // 1. Intentar primero con el proxy local (/api/verify) si existe servidor backend
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const response = await fetch('/api/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -132,16 +130,31 @@ async function callSupabase(action, payload) {
     });
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (response.ok) {
+      return await response.json();
     }
-    return await response.json();
+  } catch (apiErr) {
+    // Si falla (ej. GitHub Pages estático sin backend), intentamos llamada directa a Supabase Edge Function
+    console.warn("Proxy /api/verify no disponible, intentando llamada directa a Supabase...", apiErr);
+  }
+
+  // 2. Fallback: Llamada directa a Supabase Edge Function (para GitHub Pages / Static Hosting)
+  try {
+    const { data, error } = await supabase.functions.invoke('swift-handler', {
+      body: {
+        action,
+        ...safePayload
+      },
+      headers: {
+        'x-region': 'sa-east-1'
+      }
+    });
+
+    if (error) throw error;
+    return data;
   } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error('El servicio de verificación tardó demasiado en responder. Intente nuevamente.');
-    }
-    throw err;
+    console.error("Error en llamada directa a Supabase:", err);
+    throw new Error(err?.message || 'Error de conexión con el servicio de pagos.');
   }
 }
 
