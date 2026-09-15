@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+html, body {
+  overscroll-behavior-y: none;
+  overflow-x: hidden;
+  touch-action: pan-x pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input, textarea, select {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Leaflet container fixes */
 .leaflet-container {
   width: 100%;

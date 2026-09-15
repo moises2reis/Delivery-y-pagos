@@ -33,6 +33,8 @@ import {
 
 import { PaymentVerification } from './components/PaymentVerification';
 import { ViewSwitcher } from './components/ViewSwitcher';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
   // 1. Sedes State
@@ -405,7 +407,8 @@ export default function App() {
               <ViewSwitcher activeView={activeView} onViewChange={setActiveView} className="hidden md:flex" />
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
+              <PWAInstallButton />
               {/* Historial */}
               {history.length > 0 && (
                 <button
@@ -953,6 +956,8 @@ export default function App() {
       {activeView === 'pagos' && (
         <PaymentVerification onClose={() => setActiveView('delivery')} />
       )}
+
+      <OfflineIndicator />
     </div>
   );
 }
