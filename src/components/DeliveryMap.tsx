@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { RoutingService, Sede, MapTheme } from '../types';
-import { Route, Navigation, Check, ChevronDown } from 'lucide-react';
 
 const CARTO_API_KEY = (import.meta as any).env?.VITE_CARTO_API_KEY || 'cb1_2y4n_1_a3bf62a7af9beccb1b129b78';
 
@@ -53,14 +52,10 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   isAlternateRoute = false,
   isClosestSede = true,
   routingService = 'osrm',
-  onToggleRoutingService,
-  onChangeRoutingService,
   isManualPinMode,
   mapTheme = 'dark',
   onAcceptManualPin,
-  onCancelManualPin,
   onCoordsLiveUpdate,
-  isCalculatingRoute,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -115,7 +110,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       attributionControl: false,
     });
 
-    const tileUrl = getTileUrl(mapTheme);
+    const tileUrl = getTileUrl(mapTheme as MapTheme);
     const tiles = L.tileLayer(tileUrl, {
       subdomains: 'abcd',
       maxZoom: 20,
@@ -159,7 +154,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
     if (!mapInstanceRef.current || !tileLayerRef.current) return;
     mapInstanceRef.current.removeLayer(tileLayerRef.current);
 
-    const tileUrl = getTileUrl(mapTheme);
+    const tileUrl = getTileUrl(mapTheme as MapTheme);
     const tiles = L.tileLayer(tileUrl, {
       subdomains: 'abcd',
       maxZoom: 20,

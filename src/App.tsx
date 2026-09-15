@@ -30,7 +30,6 @@ import {
   Route,
   Check,
   Moon,
-  Sun,
   Compass,
   Globe,
 } from 'lucide-react';

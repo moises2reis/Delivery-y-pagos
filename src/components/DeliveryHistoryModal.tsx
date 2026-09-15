@@ -8,10 +8,6 @@ import {
   Share2,
   Send,
   Search,
-  ExternalLink,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
 } from 'lucide-react';
 import { generarMensajeWhatsApp } from '../utils/sheetService';
 
