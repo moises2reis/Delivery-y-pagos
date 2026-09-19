@@ -103,11 +103,20 @@ function safeParseDate(val) {
 let cachedClientIp = '127.0.0.1';
 
 async function callSupabase(action, payload) {
+  // Convert fechaPago from YYYY-MM-DD to DD/MM/YYYY only for Binance manual verification
+  const processedPayload = { ...payload };
+  if (action === 'binance' && processedPayload.fechaPago) {
+    const parts = String(processedPayload.fechaPago).split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      processedPayload.fechaPago = `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+  }
+
   // Asegurar que goodsName y goodsDetail no sean null
   const safePayload = {
-    ...payload,
-    goodsName: payload?.goodsName || 'Pago Combox Valencia',
-    goodsDetail: payload?.goodsDetail || 'Orden de cobro',
+    ...processedPayload,
+    goodsName: processedPayload?.goodsName || 'Pago Combox Valencia',
+    goodsDetail: processedPayload?.goodsDetail || 'Orden de cobro',
     clientIp: cachedClientIp
   };
 

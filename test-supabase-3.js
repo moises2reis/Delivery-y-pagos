@@ -9,6 +9,6 @@ async function test() {
     body: { action: 'recent_transactions' },
     headers: { 'x-region': 'sa-east-1' }
   });
-  console.log(data, error);
+  console.log(JSON.stringify(data, null, 2), error);
 }
 test();
