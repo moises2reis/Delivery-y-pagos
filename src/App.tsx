@@ -283,6 +283,7 @@ export default function App() {
   // Estado para resolución asíncrona de enlaces de Google Maps y notificaciones toast
   const [isResolvingUrl, setIsResolvingUrl] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [shortLinkModalUrl, setShortLinkModalUrl] = useState<string | null>(null);
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', title: string, message: string) => {
     const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
@@ -319,14 +320,16 @@ export default function App() {
           if (resolved) {
             setCoordsText(`${resolved.lat.toFixed(5)}, ${resolved.lng.toFixed(5)}`);
             handleDestinationChange(resolved);
-            showToast('success', 'Ubicación extraída', 'Enlace corto de Google Maps resuelto con éxito.');
+            showToast('success', 'Ubicación extraída', 'Enlace de Google Maps resuelto con éxito.');
           } else {
             setCoordsText(text);
-            showToast('error', 'Enlace no resuelto', 'No se pudieron extraer coordenadas del enlace de Google Maps.');
+            const cleanUrlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
+            setShortLinkModalUrl(cleanUrlMatch ? cleanUrlMatch[0] : text.trim());
           }
         } catch (err) {
           setCoordsText(text);
-          showToast('error', 'Error de enlace', 'Ocurrió un problema al interpretar el enlace.');
+          const cleanUrlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
+          setShortLinkModalUrl(cleanUrlMatch ? cleanUrlMatch[0] : text.trim());
         } finally {
           setIsResolvingUrl(false);
         }
@@ -1125,6 +1128,66 @@ export default function App() {
                   <span className="text-white font-bold">{sede.NOMBRE_SEDE.split(',')[0]}</span>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de ayuda para enlaces cortos en GitHub Pages o entornos estáticos */}
+      {shortLinkModalUrl && (
+        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-[#111318] border border-white/15 rounded-3xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4 text-left">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                  <MapPin className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Enlace de Google Maps</h3>
+                  <p className="text-xs text-zinc-400">Hosting estático (GitHub Pages)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShortLinkModalUrl(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              Los enlaces cortos (<code className="text-amber-300 font-mono">maps.app.goo.gl</code>) no contienen coordenadas numéricas en el texto, sino que son redirecciones que Google procesa en sus servidores. Al ejecutar la app en <strong className="text-white">GitHub Pages</strong> (hosting 100% estático sin servidor backend propio), los navegadores bloquean la redirección automática por políticas de seguridad (CORS).
+            </p>
+
+            <div className="bg-black/40 border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2">
+              <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">
+                Solución rápida en 2 pasos:
+              </span>
+              <ol className="text-xs text-zinc-300 list-decimal list-inside space-y-1.5 leading-relaxed">
+                <li>Haz clic en el botón de abajo para <strong>abrir la ubicación en Google Maps</strong>.</li>
+                <li>Copia el enlace completo de la barra del navegador (que ya incluye <code className="text-emerald-300">@lat,lng</code>) o copia las coordenadas numéricas y pégalas aquí.</li>
+              </ol>
+            </div>
+
+            <div className="flex gap-2.5 mt-2">
+              <a
+                href={shortLinkModalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setShortLinkModalUrl(null)}
+                className="flex-1 bg-[#00FF00] hover:bg-[#00e600] text-black font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-[0_0_15px_rgba(0,255,0,0.3)] text-center"
+              >
+                <Globe className="w-4 h-4" />
+                Abrir en Google Maps
+              </a>
+              <button
+                type="button"
+                onClick={() => setShortLinkModalUrl(null)}
+                className="bg-white/10 hover:bg-white/20 text-white text-xs font-semibold py-3 px-4 rounded-xl transition-colors cursor-pointer"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

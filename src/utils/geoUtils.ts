@@ -1,4 +1,5 @@
 import { RouteCalculation, RoutingService, Sede } from '../types';
+import { supabase } from '../core/supabase';
 
 /**
  * Calcula la distancia en kilómetros en línea recta (Fórmula de Haversine)
@@ -367,14 +368,24 @@ export async function extraerCoordenadas(
   const direct = parsearCoordenadas(texto);
   if (direct) return direct;
 
-  // Si es un enlace acortado de Google Maps, lo resolvemos a través del backend o proxy
+  // Si es un enlace acortado de Google Maps, lo resolvemos
   if (isGoogleMapsShortLink(texto)) {
+    // 1. Intentar endpoint backend (/api/resolve-maps-url o VITE_API_URL si está en GitHub Pages)
     try {
-      const response = await fetch('/api/resolve-maps-url', {
+      const apiBase = (import.meta as any).env?.VITE_API_URL || '';
+      const endpoint = apiBase ? `${apiBase.replace(/\/$/, '')}/api/resolve-maps-url` : '/api/resolve-maps-url';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: texto }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+
       if (response.ok) {
         const data = await response.json();
         if (data.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
@@ -386,7 +397,20 @@ export async function extraerCoordenadas(
         }
       }
     } catch (e) {
-      console.warn('No se pudo resolver el enlace vía backend:', e);
+      console.warn('No se pudo resolver el enlace vía backend local/remoto:', e);
+    }
+
+    // 2. Fallback: Intentar con Supabase Edge Function si está configurada (útil para GitHub Pages)
+    try {
+      const { data, error } = await supabase.functions.invoke('swift-handler', {
+        body: { action: 'resolve_url', url: texto },
+        headers: { 'x-region': 'sa-east-1' },
+      });
+      if (!error && data?.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
+        return data.coords;
+      }
+    } catch (sbErr) {
+      // Supabase Edge Function fallback silenciado si no implementa resolve_url
     }
   }
 

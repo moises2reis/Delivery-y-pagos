@@ -16,6 +16,17 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS middleware para permitir llamadas desde GitHub Pages o dominios externos
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-region");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json());
 
   app.get("/api/health", (_req, res) => {
