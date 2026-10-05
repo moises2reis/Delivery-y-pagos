@@ -252,20 +252,144 @@ export async function obtenerZonaNominatim(lat: number, lng: number): Promise<st
 }
 
 /**
- * Parsea coordenadas ingresadas como texto (ej: "10.4806, -66.9036" o formato Google Maps)
+ * Valida si un par de latitud y longitud son valores válidos en el planeta Tierra
+ */
+export function isValidCoord(lat: number, lng: number): boolean {
+  return !isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+/**
+ * Parsea coordenadas ingresadas como texto plano o extraídas de cualquier enlace de Google Maps.
+ * Soporta:
+ * - Coordenadas decimales ("10.4806, -66.9036", "(10.4806, -66.9036)", "10.4806 -66.9036")
+ * - Enlaces con pin exacto Google Maps: !3d10.2185293!4d-67.9712066
+ * - Enlaces con parámetro de búsqueda o destino: ?q=10.248,-68.010, ?query=..., ?ll=..., ?daddr=...
+ * - Enlaces con vista o centro de mapa: /@10.248,-68.010,17z
+ * - Enlaces con rutas: /place/10.248,-68.010 o /dir//10.248,-68.010
+ * - Formato sexagesimal DMS: 10°14'55.5"N 68°00'37.0"W
+ * - Mensajes de WhatsApp o textos que incluyan el link o las coordenadas en cualquier parte
  */
 export function parsearCoordenadas(
   texto: string
 ): { lat: number; lng: number } | null {
   if (!texto || !texto.trim()) return null;
-  const match = texto.match(/[(]?\s*(-?\d+\.\d+)\s*[,;\s]+\s*(-?\d+\.\d+)\s*[)]?/);
-  if (match) {
-    const lat = parseFloat(match[1]);
-    const lng = parseFloat(match[2]);
-    if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-      return { lat, lng };
+
+  let decoded = texto.trim();
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch (e) {
+    // Si falla decodeURIComponent, seguimos con el texto original
+  }
+
+  // 1. Pin exacto del lugar en Google Maps (!3d y !4d en el enlace)
+  // Ej: /data=!4m6!3m5!1s0x...!8m2!3d10.2185293!4d-67.9712066
+  const pinMatch = decoded.match(/!3d(-?\d+(?:\.\d+)?)(?:!|%21|\/|&|$)4d(-?\d+(?:\.\d+)?)/i);
+  if (pinMatch) {
+    const lat = parseFloat(pinMatch[1]);
+    const lng = parseFloat(pinMatch[2]);
+    if (isValidCoord(lat, lng)) return { lat, lng };
+  }
+
+  // 2. Parámetros de consulta en URL (?q=, ?query=, ll=, daddr=, saddr=, destination=)
+  // Ej: https://maps.google.com/?q=10.2487393,-68.0102681 o ?q=loc:10.2487393,-68.0102681
+  const queryMatch = decoded.match(/[?&](?:q|query|ll|daddr|saddr|destination)=(?:loc:)?\s*(-?\d+(?:\.\d+)?)[,\s+]+(-?\d+(?:\.\d+)?)/i);
+  if (queryMatch) {
+    const lat = parseFloat(queryMatch[1]);
+    const lng = parseFloat(queryMatch[2]);
+    if (isValidCoord(lat, lng)) return { lat, lng };
+  }
+
+  // 3. Patrón de vista de mapa @lat,lng
+  // Ej: https://www.google.com/maps/@10.2487393,-68.0102681,17z
+  const atMatch = decoded.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (atMatch) {
+    const lat = parseFloat(atMatch[1]);
+    const lng = parseFloat(atMatch[2]);
+    if (isValidCoord(lat, lng)) return { lat, lng };
+  }
+
+  // 4. Ruta /place/lat,lng o /dir//lat,lng o /search/lat,lng
+  const placeMatch = decoded.match(/(?:\/place|\/dir\/[^\/]*|\/search)\/(-?\d+(?:\.\d+)?)[,\s+]+(-?\d+(?:\.\d+)?)/i);
+  if (placeMatch) {
+    const lat = parseFloat(placeMatch[1]);
+    const lng = parseFloat(placeMatch[2]);
+    if (isValidCoord(lat, lng)) return { lat, lng };
+  }
+
+  // 5. Coordenadas DMS (Grados, Minutos, Segundos ej: 10°14'55.5"N 68°00'37.0"W)
+  const dmsMatch = decoded.match(/(\d+)[°º\s]+(\d+)['"´`\s]+([\d.]+)?['"´`\s]*([NSEWnsew])[\s,;]+(\d+)[°º\s]+(\d+)['"´`\s]+([\d.]+)?['"´`\s]*([NSEWnsew])/i);
+  if (dmsMatch) {
+    const latDeg = parseFloat(dmsMatch[1]);
+    const latMin = parseFloat(dmsMatch[2]);
+    const latSec = parseFloat(dmsMatch[3] || "0");
+    const latDir = dmsMatch[4].toUpperCase();
+
+    const lngDeg = parseFloat(dmsMatch[5]);
+    const lngMin = parseFloat(dmsMatch[6]);
+    const lngSec = parseFloat(dmsMatch[7] || "0");
+    const lngDir = dmsMatch[8].toUpperCase();
+
+    let lat = latDeg + latMin / 60 + latSec / 3600;
+    if (latDir === "S") lat = -lat;
+
+    let lng = lngDeg + lngMin / 60 + lngSec / 3600;
+    if (lngDir === "W") lng = -lng;
+
+    if (isValidCoord(lat, lng)) return { lat, lng };
+  }
+
+  // 6. Formato numérico directo ("10.4806, -66.9036" o "(10.4806, -66.9036)")
+  const directMatch = decoded.match(/[(]?\s*(-?\d+\.\d+)\s*[,;\s]+\s*(-?\d+\.\d+)\s*[)]?/);
+  if (directMatch) {
+    const lat = parseFloat(directMatch[1]);
+    const lng = parseFloat(directMatch[2]);
+    if (isValidCoord(lat, lng)) return { lat, lng };
+  }
+
+  return null;
+}
+
+/**
+ * Detecta si un texto contiene un enlace acortado de Google Maps (maps.app.goo.gl o goo.gl/maps)
+ */
+export function isGoogleMapsShortLink(texto: string): boolean {
+  if (!texto) return false;
+  return /(?:maps\.app\.goo\.gl|goo\.gl\/maps)\/[A-Za-z0-9_-]+/i.test(texto);
+}
+
+/**
+ * Extrae coordenadas de cualquier texto o link, resolviendo enlaces acortados si es necesario.
+ */
+export async function extraerCoordenadas(
+  texto: string
+): Promise<{ lat: number; lng: number } | null> {
+  // Primero intentamos la extracción inmediata y síncrona
+  const direct = parsearCoordenadas(texto);
+  if (direct) return direct;
+
+  // Si es un enlace acortado de Google Maps, lo resolvemos a través del backend o proxy
+  if (isGoogleMapsShortLink(texto)) {
+    try {
+      const response = await fetch('/api/resolve-maps-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: texto }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
+          return data.coords;
+        }
+        if (data.resolvedUrl) {
+          const fromResolved = parsearCoordenadas(data.resolvedUrl);
+          if (fromResolved) return fromResolved;
+        }
+      }
+    } catch (e) {
+      console.warn('No se pudo resolver el enlace vía backend:', e);
     }
   }
+
   return null;
 }
 

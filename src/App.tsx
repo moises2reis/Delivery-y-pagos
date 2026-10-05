@@ -6,6 +6,8 @@ import {
   calcularTarifaSede,
   obtenerZonaNominatim,
   parsearCoordenadas,
+  extraerCoordenadas,
+  isGoogleMapsShortLink,
   getSchedule,
   findClosestSede,
 } from './utils/geoUtils';
@@ -32,12 +34,14 @@ import {
   Moon,
   Compass,
   Globe,
+  Loader2,
 } from 'lucide-react';
 
 import { PaymentVerification } from './components/PaymentVerification';
 import { ViewSwitcher } from './components/ViewSwitcher';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { ToastNotification, ToastMessage } from './components/ToastNotification';
 
 export default function App() {
   // 1. Sedes State
@@ -274,6 +278,65 @@ export default function App() {
       }
     },
     [selectedSede, preferredSede, sedes, calculateRoute]
+  );
+
+  // Estado para resolución asíncrona de enlaces de Google Maps y notificaciones toast
+  const [isResolvingUrl, setIsResolvingUrl] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = useCallback((type: 'success' | 'error' | 'info', title: string, message: string) => {
+    const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const handleDismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Procesa cualquier texto o link ingresado en la island de coordenadas
+  const processLocationInput = useCallback(
+    async (text: string) => {
+      if (!text || !text.trim()) return;
+
+      // 1. Intentar extracción directa síncrona (coordenadas, links de Maps con @, !3d!4d, ?q=, DMS)
+      const direct = parsearCoordenadas(text);
+      if (direct) {
+        setCoordsText(`${direct.lat.toFixed(5)}, ${direct.lng.toFixed(5)}`);
+        handleDestinationChange(direct);
+        showToast('success', 'Ubicación extraída', 'Coordenadas obtenidas del enlace de Google Maps.');
+        return;
+      }
+
+      // 2. Si es un enlace acortado de Google Maps (maps.app.goo.gl o goo.gl/maps)
+      if (isGoogleMapsShortLink(text)) {
+        setIsResolvingUrl(true);
+        setCoordsText('Extrayendo ubicación del enlace...');
+        try {
+          const resolved = await extraerCoordenadas(text);
+          if (resolved) {
+            setCoordsText(`${resolved.lat.toFixed(5)}, ${resolved.lng.toFixed(5)}`);
+            handleDestinationChange(resolved);
+            showToast('success', 'Ubicación extraída', 'Enlace corto de Google Maps resuelto con éxito.');
+          } else {
+            setCoordsText(text);
+            showToast('error', 'Enlace no resuelto', 'No se pudieron extraer coordenadas del enlace de Google Maps.');
+          }
+        } catch (err) {
+          setCoordsText(text);
+          showToast('error', 'Error de enlace', 'Ocurrió un problema al interpretar el enlace.');
+        } finally {
+          setIsResolvingUrl(false);
+        }
+        return;
+      }
+
+      // 3. Si no coincide con ningún patrón
+      showToast('error', 'Formato no reconocido', 'Ingresa coordenadas válidas o un link de Google Maps.');
+    },
+    [handleDestinationChange, showToast]
   );
 
   // Handle manual input of coordinates
@@ -772,28 +835,45 @@ export default function App() {
                 : 'border-white/20 focus-within:border-[#00FF00]/70'
             } rounded-full pl-3.5 pr-1.5 py-1.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_8px_30px_rgba(0,0,0,0.6)]  gap-1.5`}
           >
-            <MapPin
-              className={`w-4 h-4 flex-shrink-0 -colors ${
-                destinationCoords ? 'text-red-500 fill-red-500/20' : 'text-zinc-500'
-              }`}
-            />
+            {isResolvingUrl ? (
+              <Loader2 className="w-4 h-4 flex-shrink-0 text-[#00FF00] animate-spin" />
+            ) : (
+              <MapPin
+                className={`w-4 h-4 flex-shrink-0 transition-colors ${
+                  destinationCoords ? 'text-red-500 fill-red-500/20' : 'text-zinc-500'
+                }`}
+              />
+            )}
             <input
               id="input-coordenadas-mapa"
               type="text"
               value={coordsText}
-              onChange={(e) => {
-                // Solo actualiza el texto mientras se escribe; no recalcula la ruta hasta pulsar Enter
-                setCoordsText(e.target.value);
+              disabled={isResolvingUrl}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData('text');
+                if (pasted && (parsearCoordenadas(pasted) || isGoogleMapsShortLink(pasted))) {
+                  e.preventDefault();
+                  processLocationInput(pasted);
+                }
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const parsed = parsearCoordenadas(coordsText);
-                  if (parsed) {
-                    handleDestinationChange(parsed);
+              onChange={(e) => {
+                const val = e.target.value;
+                setCoordsText(val);
+                // Si el usuario pega o autocompleta un enlace largo de Maps o coordenadas
+                if (val.length > 25 && (val.includes('maps') || val.includes('http') || val.includes('!3d'))) {
+                  const direct = parsearCoordenadas(val);
+                  if (direct) {
+                    processLocationInput(val);
                   }
                 }
               }}
-              placeholder="Coordenadas (Enter para calcular)"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  processLocationInput(coordsText);
+                }
+              }}
+              placeholder={isResolvingUrl ? 'Extrayendo coordenadas...' : 'Pega link de Google Maps o coordenadas'}
               className="w-full bg-transparent text-xs text-white placeholder-zinc-400 font-mono focus:outline-none"
             />
 
@@ -1051,6 +1131,7 @@ export default function App() {
       )}
 
       <OfflineIndicator />
+      <ToastNotification toasts={toasts} onDismiss={handleDismissToast} />
     </div>
   );
 }

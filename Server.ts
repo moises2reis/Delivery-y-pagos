@@ -177,6 +177,128 @@ async function startServer() {
     }
   });
 
+  // ============================================================
+  // ENDPOINT PARA RESOLVER ENLACES DE GOOGLE MAPS (maps.app.goo.gl, etc.)
+  // ============================================================
+  app.post("/api/resolve-maps-url", async (req, res) => {
+    try {
+      const { url } = req.body;
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ error: "URL inválida o vacía" });
+      }
+
+      // Función auxiliar para validar coordenadas
+      const isValidCoord = (lat: number, lng: number) =>
+        !isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
+      // Parser de coordenadas compatible
+      const parseCoords = (texto: string): { lat: number; lng: number } | null => {
+        if (!texto) return null;
+        let decoded = texto;
+        try { decoded = decodeURIComponent(texto); } catch (_) {}
+
+        // 1. !3d y !4d
+        const pinMatch = decoded.match(/!3d(-?\d+(?:\.\d+)?)(?:!|%21|\/|&|$)4d(-?\d+(?:\.\d+)?)/i);
+        if (pinMatch) {
+          const lat = parseFloat(pinMatch[1]);
+          const lng = parseFloat(pinMatch[2]);
+          if (isValidCoord(lat, lng)) return { lat, lng };
+        }
+
+        // 2. Parámetros de consulta
+        const queryMatch = decoded.match(/[?&](?:q|query|ll|daddr|saddr|destination)=(?:loc:)?\s*(-?\d+(?:\.\d+)?)[,\s+]+(-?\d+(?:\.\d+)?)/i);
+        if (queryMatch) {
+          const lat = parseFloat(queryMatch[1]);
+          const lng = parseFloat(queryMatch[2]);
+          if (isValidCoord(lat, lng)) return { lat, lng };
+        }
+
+        // 3. @lat,lng
+        const atMatch = decoded.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+        if (atMatch) {
+          const lat = parseFloat(atMatch[1]);
+          const lng = parseFloat(atMatch[2]);
+          if (isValidCoord(lat, lng)) return { lat, lng };
+        }
+
+        // 4. /place/lat,lng
+        const placeMatch = decoded.match(/(?:\/place|\/dir\/[^\/]*|\/search)\/(-?\d+(?:\.\d+)?)[,\s+]+(-?\d+(?:\.\d+)?)/i);
+        if (placeMatch) {
+          const lat = parseFloat(placeMatch[1]);
+          const lng = parseFloat(placeMatch[2]);
+          if (isValidCoord(lat, lng)) return { lat, lng };
+        }
+
+        // 5. Coordenadas numéricas directas
+        const directMatch = decoded.match(/[(]?\s*(-?\d+\.\d+)\s*[,;\s]+\s*(-?\d+\.\d+)\s*[)]?/);
+        if (directMatch) {
+          const lat = parseFloat(directMatch[1]);
+          const lng = parseFloat(directMatch[2]);
+          if (isValidCoord(lat, lng)) return { lat, lng };
+        }
+
+        return null;
+      };
+
+      // Si la URL ya trae coordenadas sin necesidad de resolver
+      const directFound = parseCoords(url);
+      if (directFound) {
+        return res.json({ coords: directFound, resolvedUrl: url });
+      }
+
+      // Extraer URL del texto (por si enviaron texto de WhatsApp tipo "Mi ubicación: https://...")
+      const urlMatch = url.match(/https?:\/\/[^\s"'<>]+/i);
+      let currentUrl = urlMatch ? urlMatch[0] : url.trim();
+
+      // Seguir redirecciones (máximo 6 saltos)
+      for (let i = 0; i < 6; i++) {
+        const coords = parseCoords(currentUrl);
+        if (coords) {
+          return res.json({ coords, resolvedUrl: currentUrl });
+        }
+
+        const response = await fetch(currentUrl, {
+          method: "GET",
+          redirect: "manual",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+          }
+        });
+
+        const location = response.headers.get("location");
+        if (location) {
+          currentUrl = new URL(location, currentUrl).toString();
+          const parsed = parseCoords(currentUrl);
+          if (parsed) {
+            return res.json({ coords: parsed, resolvedUrl: currentUrl });
+          }
+        } else {
+          // No más redirecciones, buscar en el HTML final
+          const html = await response.text();
+          const parsedFromHtml = parseCoords(html);
+          if (parsedFromHtml) {
+            return res.json({ coords: parsedFromHtml, resolvedUrl: currentUrl });
+          }
+          break;
+        }
+      }
+
+      const finalParsed = parseCoords(currentUrl);
+      if (finalParsed) {
+        return res.json({ coords: finalParsed, resolvedUrl: currentUrl });
+      }
+
+      return res.status(404).json({
+        error: "No se pudieron extraer coordenadas del enlace proporcionado.",
+        resolvedUrl: currentUrl
+      });
+    } catch (err: any) {
+      console.error("[Resolve Maps URL Error]:", err);
+      return res.status(500).json({ error: "Error al resolver enlace: " + err?.message });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
