@@ -66,6 +66,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   // Store current interactive pin coords
   const currentPinCoordsRef = useRef<{ lat: number; lng: number } | null>(destinationCoords);
   const [localCoords, setLocalCoords] = useState<{ lat: number; lng: number } | null>(destinationCoords);
+  const [isMapMoving, setIsMapMoving] = useState(false);
 
   // Keep callback refs fresh to avoid stale closures in Leaflet events
   const onDestinationChangeRef = useRef(onDestinationChange);
@@ -86,13 +87,29 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
     setLocalCoords(destinationCoords);
   }, [destinationCoords]);
 
-  // Pan to destination when entering manual pin mode so the user sees it immediately
+  // Centrar el mapa cuando se activa el modo de pin manual superpuesto en el centro
   useEffect(() => {
-    if (isManualPinMode && destinationCoords && mapInstanceRef.current) {
-      mapInstanceRef.current.panTo([destinationCoords.lat, destinationCoords.lng], {
-        animate: true,
-        duration: 0.4,
-      });
+    if (isManualPinMode && mapInstanceRef.current) {
+      const map = mapInstanceRef.current;
+      if (destinationCoords) {
+        map.panTo([destinationCoords.lat, destinationCoords.lng], {
+          animate: true,
+          duration: 0.35,
+        });
+      } else {
+        const [sLat, sLng] = selectedSede.COORDENADAS_SEDE.split(',').map((s) => parseFloat(s.trim()));
+        if (!isNaN(sLat) && !isNaN(sLng)) {
+          map.panTo([sLat, sLng], { animate: true, duration: 0.35 });
+        }
+      }
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          const center = mapInstanceRef.current.getCenter();
+          const coords = { lat: center.lat, lng: center.lng };
+          currentPinCoordsRef.current = coords;
+          onCoordsLiveUpdateRef.current?.(coords);
+        }
+      }, 400);
     }
   }, [isManualPinMode]);
 
@@ -118,19 +135,27 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
     }).addTo(map);
     tileLayerRef.current = tiles;
 
-    // Map click handler - ONLY active when manual pin mode (lápiz) is enabled
-    map.on('click', (e: L.LeafletMouseEvent) => {
+    // Escuchar movimiento del mapa para actualizar coordenadas en vivo del pin central
+    map.on('movestart', () => {
+      setIsMapMoving(true);
+    });
+
+    map.on('move', () => {
       if (isManualPinModeRef.current) {
-        const clicked = { lat: e.latlng.lat, lng: e.latlng.lng };
-        currentPinCoordsRef.current = clicked;
-        setLocalCoords(clicked);
-        if (userMarkerRef.current) {
-          userMarkerRef.current.setLatLng(e.latlng);
-        }
-        onCoordsLiveUpdateRef.current?.(clicked);
-        onDestinationChangeRef.current(clicked);
-        // Al tocar en el mapa el modo edición se bloquea y queda fija
-        onAcceptManualPinRef.current?.(clicked);
+        const center = map.getCenter();
+        const coords = { lat: center.lat, lng: center.lng };
+        currentPinCoordsRef.current = coords;
+        onCoordsLiveUpdateRef.current?.(coords);
+      }
+    });
+
+    map.on('moveend', () => {
+      setIsMapMoving(false);
+      if (isManualPinModeRef.current) {
+        const center = map.getCenter();
+        const coords = { lat: center.lat, lng: center.lng };
+        currentPinCoordsRef.current = coords;
+        onCoordsLiveUpdateRef.current?.(coords);
       }
     });
 
@@ -254,30 +279,21 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       userMarkerRef.current = null;
     }
 
+    // En modo de ajuste manual el pin está superpuesto fijamente en el centro de la pantalla
+    if (isManualPinMode) return;
+
     const activeCoords = localCoords || destinationCoords;
     if (!activeCoords) return;
 
     // Minimalist Red Pin with precise anchor at bottom tip
     const userPinHtml = `
-      <div class="select-none flex flex-col items-center justify-center relative ${
-        isManualPinMode ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
-      }">
+      <div class="select-none flex flex-col items-center justify-center relative cursor-pointer">
         <!-- Minimalist Red Pin SVG with transparent hole -->
-        <div class="relative flex items-center justify-center ${
-          isManualPinMode ? 'scale-115' : 'hover:scale-105'
-        }">
+        <div class="relative flex items-center justify-center hover:scale-105">
           <svg width="32" height="38" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 3.8a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 1 1 0-6.4z" fill="${isManualPinMode ? '#ef4444' : '#dc2626'}"/>
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 3.8a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 1 1 0-6.4z" fill="#dc2626"/>
           </svg>
         </div>
-
-        ${
-          isManualPinMode
-            ? `<div class="bg-black/90 text-white border border-red-500/60 font-bold text-[9px] px-2 py-0.5 rounded-md shadow-lg mt-1 whitespace-nowrap">
-                Arrastra al punto exacto
-              </div>`
-            : ''
-        }
       </div>
     `;
 
@@ -290,34 +306,9 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
 
     const marker = L.marker([activeCoords.lat, activeCoords.lng], {
       icon,
-      draggable: isManualPinMode,
-      autoPan: true,
+      draggable: false,
+      autoPan: false,
     }).addTo(map);
-
-    marker.on('dragstart', () => {
-      marker.setZIndexOffset(1000);
-    });
-
-    marker.on('drag', () => {
-      const pos = marker.getLatLng();
-      const updated = { lat: pos.lat, lng: pos.lng };
-      currentPinCoordsRef.current = updated;
-      setLocalCoords(updated);
-      onCoordsLiveUpdateRef.current?.(updated);
-    });
-
-    marker.on('dragend', () => {
-      const pos = marker.getLatLng();
-      const updated = { lat: pos.lat, lng: pos.lng };
-      currentPinCoordsRef.current = updated;
-      setLocalCoords(updated);
-      onCoordsLiveUpdateRef.current?.(updated);
-      onDestinationChangeRef.current(updated);
-
-      if (isManualPinModeRef.current) {
-        onAcceptManualPinRef.current?.(updated);
-      }
-    });
 
     userMarkerRef.current = marker;
   }, [destinationCoords, isManualPinMode]);
@@ -368,9 +359,48 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   }, [routeGeometry, isAlternateRoute, routingService, isManualPinMode, isClosestSede]);
 
   return (
-    <div id="delivery-map-container" className={`relative w-full h-full min-h-[300px] overflow-hidden ${isManualPinMode ? 'cursor-crosshair' : ''}`}>
+    <div id="delivery-map-container" className={`relative w-full h-full min-h-[300px] overflow-hidden ${isManualPinMode ? 'cursor-grab active:cursor-grabbing' : ''}`}>
       {/* Map DOM Element */}
       <div ref={mapContainerRef} className="w-full h-full" />
+
+      {/* Pin Superpuesto Fijo en el Centro de la Pantalla (Modo de Ubicación Manual) */}
+      {isManualPinMode && (
+        <div className="absolute inset-0 pointer-events-none z-[600] flex items-center justify-center">
+          <div className="relative flex flex-col items-center select-none">
+            {/* Pin de entrega que se eleva cuando el mapa se mueve */}
+            <div
+              className={`transition-all duration-150 ease-out origin-bottom ${
+                isMapMoving
+                  ? '-translate-y-4 scale-110 drop-shadow-[0_20px_25px_rgba(0,0,0,0.7)]'
+                  : 'translate-y-0 scale-100 drop-shadow-[0_10px_15px_rgba(0,0,0,0.5)]'
+              }`}
+            >
+              <svg width="42" height="52" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  fillRule="evenodd"
+                  clipRule="evenodd"
+                  d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 3.8a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 1 1 0-6.4z"
+                  fill="#EF4444"
+                />
+                <path
+                  d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"
+                  stroke="#FFFFFF"
+                  strokeWidth="1.2"
+                />
+              </svg>
+            </div>
+
+            {/* Sombra de suelo y punto exacto de anclaje (Diana) */}
+            <div
+              className={`w-5 h-2 bg-black/70 rounded-full blur-[1px] -mt-1 transition-all duration-150 ${
+                isMapMoving ? 'scale-75 opacity-40' : 'scale-100 opacity-90'
+              }`}
+            />
+            <div className="w-2.5 h-2.5 rounded-full border-2 border-white bg-red-600 shadow-md -mt-1.5 ring-2 ring-red-500/50" />
+          </div>
+        </div>
+      )}
+
       {/* Overlay translúcido para integrar los mapas oscuro a la interfaz de la app */}
       <div className="absolute inset-0 bg-slate-600/10 bg-gradient-to-tr from-blue-950/10 to-slate-800/10 pointer-events-none z-[100] mix-blend-screen" />
     </div>

@@ -346,20 +346,25 @@ export default function App() {
 
   // Handle manual input of coordinates
   const previousCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [livePinCoords, setLivePinCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const handleToggleManualPin = () => {
     if (!isManualPinMode) {
       previousCoordsRef.current = destinationCoords;
-      if (!destinationCoords) {
-        const [sLat, sLng] = selectedSede.COORDENADAS_SEDE.split(',').map((s) => parseFloat(s.trim()));
-        const fallback = {
-          lat: !isNaN(sLat) ? sLat + 0.003 : 10.2487,
-          lng: !isNaN(sLng) ? sLng + 0.003 : -68.0102,
-        };
-        setDestinationCoords(fallback);
-        setCoordsText(`${fallback.lat.toFixed(5)}, ${fallback.lng.toFixed(5)}`);
-      }
       setIsManualPinMode(true);
+      if (destinationCoords) {
+        setLivePinCoords(destinationCoords);
+        setCoordsText(`${destinationCoords.lat.toFixed(5)}, ${destinationCoords.lng.toFixed(5)}`);
+      } else {
+        const [sLat, sLng] = selectedSede.COORDENADAS_SEDE.split(',').map((s) => parseFloat(s.trim()));
+        const initial = {
+          lat: !isNaN(sLat) ? sLat : 10.2487,
+          lng: !isNaN(sLng) ? sLng : -68.0102,
+        };
+        setLivePinCoords(initial);
+        setCoordsText(`${initial.lat.toFixed(5)}, ${initial.lng.toFixed(5)}`);
+      }
+      showToast('info', 'Mover mapa libremente', 'El pin está en el centro. Mueve el mapa y pulsa Aceptar cuando esté listo.');
     } else {
       handleAcceptManualPin();
     }
@@ -367,15 +372,18 @@ export default function App() {
 
   const handleAcceptManualPin = (coords?: { lat: number; lng: number }) => {
     setIsManualPinMode(false);
-    const finalCoords = coords || destinationCoords;
+    const finalCoords = coords || livePinCoords || destinationCoords;
     if (finalCoords) {
+      setCoordsText(`${finalCoords.lat.toFixed(5)}, ${finalCoords.lng.toFixed(5)}`);
       handleDestinationChange(finalCoords);
+      showToast('success', 'Ubicación fijada', 'Pin anclado al mapa con éxito.');
     }
   };
 
   const handleCancelManualPin = () => {
     setIsManualPinMode(false);
     if (previousCoordsRef.current) {
+      setCoordsText(`${previousCoordsRef.current.lat.toFixed(5)}, ${previousCoordsRef.current.lng.toFixed(5)}`);
       handleDestinationChange(previousCoordsRef.current);
     } else {
       setCoordsText('');
@@ -902,19 +910,23 @@ export default function App() {
               </button>
             )}
 
-            {/* Botón Lápiz para ajustar pin en el mapa */}
+            {/* Botón Lápiz / Check para ajustar o aceptar pin en el mapa */}
             <button
               id="btn-toggle-manual-pin"
               type="button"
               onClick={handleToggleManualPin}
-              title={isManualPinMode ? 'Aceptar ubicación del pin' : 'Ajustar pin en el mapa'}
-              className={`w-7 h-7 rounded-full flex items-center justify-center  flex-shrink-0 cursor-pointer ${
+              title={isManualPinMode ? 'Aceptar y anclar ubicación' : 'Ajustar pin en el mapa'}
+              className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 cursor-pointer transition-all ${
                 isManualPinMode
-                  ? 'bg-[#00FF00] text-black shadow-[0_0_14px_#00FF00]'
+                  ? 'bg-[#00FF00] text-black shadow-[0_0_15px_#00FF00] scale-105'
                   : 'bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white'
               }`}
             >
-              <Pencil className="w-3.5 h-3.5" />
+              {isManualPinMode ? (
+                <Check className="w-4 h-4 stroke-[3]" />
+              ) : (
+                <Pencil className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
         </div>
@@ -937,101 +949,133 @@ export default function App() {
           onCancelManualPin={handleCancelManualPin}
           isCalculatingRoute={isCalculatingRoute}
           onCoordsLiveUpdate={(c) => {
+            setLivePinCoords(c);
             setCoordsText(`${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`);
           }}
         />
 
-        {/* Métricas Separadas Redondeadas y Botón Enviar Céntricos en el Mapa */}
-        <div className="absolute bottom-3 sm:bottom-5 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-[850] pointer-events-none">
-          <div className="flex flex-col gap-2 pointer-events-auto">
-            {/* Barra Desplegable de Datos en Móvil */}
-            <button
-              type="button"
-              onClick={() => setIsMobilePanelOpen(true)}
-              className="md:hidden flex items-center justify-between w-full bg-black/95 hover:bg-black/95  border border-white/20 rounded-2xl py-2 px-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.6)] text-left text-xs  active:scale-[0.99] cursor-pointer"
-            >
-              <div className="flex items-center gap-2 truncate">
-                <span className="w-2 h-2 rounded-full bg-[#00FF00]  flex-shrink-0" />
-                <span className="font-bold text-white text-xs truncate">
-                  Abrir panel
-                </span>
-              </div>
-              <ChevronUp className="w-4 h-4 text-[#00FF00]" />
-            </button>
-
-            {/* Pastillas Separadas y Redondeadas: Tiempo, Distancia, Tarifa */}
-            <div className="grid grid-cols-3 gap-2 relative z-30">
-              {/* Tiempo */}
-              <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
-                <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
-                  Tiempo
-                </span>
-                <div className="text-xs sm:text-sm font-black text-white mt-0.5">
-                  {isCalculatingRoute ? (
-                    <span className="text-zinc-500 text-xs ">...</span>
-                  ) : routeData ? (
-                    `${routeData.durationMin} min`
-                  ) : (
-                    '-- min'
-                  )}
-                </div>
-              </div>
-
-              {/* Distancia */}
-              <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
-                <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
-                  Distancia
-                </span>
-                <div className="text-xs sm:text-sm font-black text-white mt-0.5">
-                  {isCalculatingRoute ? (
-                    <span className="text-zinc-500 text-xs ">...</span>
-                  ) : routeData ? (
-                    `${routeData.distanceKm.toFixed(1)} km`
-                  ) : (
-                    '-- km'
-                  )}
-                </div>
-              </div>
-
-              {/* Tarifa */}
-              <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
-                <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
-                  Tarifa
-                </span>
-                <div className="text-sm sm:text-base font-black text-[#00FF00] mt-0.5 drop-shadow-[0_0_8px_rgba(0,255,0,0.6)]">
-                  {priceCalculation ? `${priceCalculation.tarifaFinal.toFixed(2)}` : '$--'}
-                </div>
-              </div>
+        {/* Barra flotante para aceptar o cancelar cuando se mueve el mapa libremente con el pin en el centro */}
+        {isManualPinMode && (
+          <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[900] flex flex-col items-center gap-2.5 pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 w-[92%] sm:w-auto max-w-sm">
+            <div className="bg-black/90 backdrop-blur-md border border-[#00FF00]/40 px-4 py-1.5 rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.8)] text-center flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#00FF00] animate-ping" />
+              <span className="text-[11px] text-zinc-200 font-medium">Mueve el mapa para ubicar el destino</span>
             </div>
 
-            {/* Botón Enviar (Rojo si no es la preferida, Verde si es la preferida, Gris si deshabilitado) */}
-            <div className="relative z-10">
+            <div className="flex items-center gap-2.5 w-full justify-center">
               <button
-                id="btn-enviar-appdelivery"
                 type="button"
-                onClick={handleSendToSheet}
-                disabled={isSendingToSheet || !routeData || !destinationCoords}
-                className={`w-full py-3.5 px-6 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center border-2 ${
-                  isSendingToSheet || !routeData || !destinationCoords
-                    ? 'bg-zinc-800 text-zinc-500 border-zinc-700 shadow-none cursor-not-allowed'
-                    : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
-                      ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-[0_0_35px_rgba(239,68,68,0.95)] hover:bg-[#dc2626] cursor-pointer'
-                      : 'bg-[#00FF00] text-black border-[#00FF00] shadow-[0_0_35px_rgba(0,255,0,0.95)] hover:bg-[#1aff1a] cursor-pointer'
-                } active:scale-[0.98]`}
+                onClick={handleCancelManualPin}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-zinc-900/95 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/20 text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
               >
-                {isSendingToSheet
-                  ? 'Enviando...'
-                  : !routeData || !destinationCoords
-                    ? 'Esperando Ruta'
-                    : !isClosestSede
-                      ? 'Enviar (Ruta más Larga)'
-                      : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
-                        ? 'Enviar a la otra sede'
-                        : 'Enviar'}
+                <X className="w-4 h-4 text-zinc-400" />
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAcceptManualPin()}
+                className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl bg-[#00FF00] hover:bg-[#00e600] text-black text-xs font-extrabold transition-all shadow-[0_0_20px_rgba(0,255,0,0.4)] active:scale-95 flex items-center justify-center gap-2 cursor-pointer ring-2 ring-[#00FF00]/50"
+              >
+                <Check className="w-4 h-4 stroke-[3]" />
+                Aceptar ubicación
               </button>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Métricas Separadas Redondeadas y Botón Enviar Céntricos en el Mapa (Ocultos durante ajuste manual) */}
+        {!isManualPinMode && (
+          <div className="absolute bottom-3 sm:bottom-5 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-[850] pointer-events-none">
+            <div className="flex flex-col gap-2 pointer-events-auto">
+              {/* Barra Desplegable de Datos en Móvil */}
+              <button
+                type="button"
+                onClick={() => setIsMobilePanelOpen(true)}
+                className="md:hidden flex items-center justify-between w-full bg-black/95 hover:bg-black/95  border border-white/20 rounded-2xl py-2 px-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.6)] text-left text-xs  active:scale-[0.99] cursor-pointer"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="w-2 h-2 rounded-full bg-[#00FF00]  flex-shrink-0" />
+                  <span className="font-bold text-white text-xs truncate">
+                    Abrir panel
+                  </span>
+                </div>
+                <ChevronUp className="w-4 h-4 text-[#00FF00]" />
+              </button>
+
+              {/* Pastillas Separadas y Redondeadas: Tiempo, Distancia, Tarifa */}
+              <div className="grid grid-cols-3 gap-2 relative z-30">
+                {/* Tiempo */}
+                <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
+                  <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                    Tiempo
+                  </span>
+                  <div className="text-xs sm:text-sm font-black text-white mt-0.5">
+                    {isCalculatingRoute ? (
+                      <span className="text-zinc-500 text-xs ">...</span>
+                    ) : routeData ? (
+                      `${routeData.durationMin} min`
+                    ) : (
+                      '-- min'
+                    )}
+                  </div>
+                </div>
+
+                {/* Distancia */}
+                <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
+                  <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                    Distancia
+                  </span>
+                  <div className="text-xs sm:text-sm font-black text-white mt-0.5">
+                    {isCalculatingRoute ? (
+                      <span className="text-zinc-500 text-xs ">...</span>
+                    ) : routeData ? (
+                      `${routeData.distanceKm.toFixed(1)} km`
+                    ) : (
+                      '-- km'
+                    )}
+                  </div>
+                </div>
+
+                {/* Tarifa */}
+                <div className="bg-black/95  border border-white/20 rounded-2xl py-2 px-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),0_4px_10px_rgba(0,0,0,0.3)] flex flex-col items-center justify-center text-center">
+                  <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                    Tarifa
+                  </span>
+                  <div className="text-sm sm:text-base font-black text-[#00FF00] mt-0.5 drop-shadow-[0_0_8px_rgba(0,255,0,0.6)]">
+                    {priceCalculation ? `${priceCalculation.tarifaFinal.toFixed(2)}` : '$--'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Botón Enviar (Rojo si no es la preferida, Verde si es la preferida, Gris si deshabilitado) */}
+              <div className="relative z-10">
+                <button
+                  id="btn-enviar-appdelivery"
+                  type="button"
+                  onClick={handleSendToSheet}
+                  disabled={isSendingToSheet || !routeData || !destinationCoords}
+                  className={`w-full py-3.5 px-6 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center border-2 ${
+                    isSendingToSheet || !routeData || !destinationCoords
+                      ? 'bg-zinc-800 text-zinc-500 border-zinc-700 shadow-none cursor-not-allowed'
+                      : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
+                        ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-[0_0_35px_rgba(239,68,68,0.95)] hover:bg-[#dc2626] cursor-pointer'
+                        : 'bg-[#00FF00] text-black border-[#00FF00] shadow-[0_0_35px_rgba(0,255,0,0.95)] hover:bg-[#1aff1a] cursor-pointer'
+                  } active:scale-[0.98]`}
+                >
+                  {isSendingToSheet
+                    ? 'Enviando...'
+                    : !routeData || !destinationCoords
+                      ? 'Esperando Ruta'
+                      : !isClosestSede
+                        ? 'Enviar (Ruta más Larga)'
+                        : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
+                          ? 'Enviar a la otra sede'
+                          : 'Enviar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* History Modal */}
