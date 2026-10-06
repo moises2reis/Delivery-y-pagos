@@ -35,6 +35,9 @@ import {
   Compass,
   Globe,
   Loader2,
+  Settings,
+  Server,
+  ChevronRight,
 } from 'lucide-react';
 
 import { PaymentVerification } from './components/PaymentVerification';
@@ -42,6 +45,7 @@ import { ViewSwitcher } from './components/ViewSwitcher';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { ToastNotification, ToastMessage } from './components/ToastNotification';
+import { EdgeFunctionConfigModal } from './components/EdgeFunctionConfigModal';
 
 export default function App() {
   // 1. Sedes State
@@ -283,7 +287,7 @@ export default function App() {
   // Estado para resolución asíncrona de enlaces de Google Maps y notificaciones toast
   const [isResolvingUrl, setIsResolvingUrl] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [shortLinkModalUrl, setShortLinkModalUrl] = useState<string | null>(null);
+  const [isEdgeConfigOpen, setIsEdgeConfigOpen] = useState(false);
 
   const showToast = useCallback((type: 'success' | 'error' | 'info', title: string, message: string) => {
     const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
@@ -323,13 +327,11 @@ export default function App() {
             showToast('success', 'Ubicación extraída', 'Enlace de Google Maps resuelto con éxito.');
           } else {
             setCoordsText(text);
-            const cleanUrlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
-            setShortLinkModalUrl(cleanUrlMatch ? cleanUrlMatch[0] : text.trim());
+            showToast('error', 'No se pudieron extraer coordenadas', 'Verifica el enlace o configura tu Edge Function en Configuración.');
           }
         } catch (err) {
           setCoordsText(text);
-          const cleanUrlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
-          setShortLinkModalUrl(cleanUrlMatch ? cleanUrlMatch[0] : text.trim());
+          showToast('error', 'Error al procesar enlace', 'Ocurrió un error al procesar el enlace.');
         } finally {
           setIsResolvingUrl(false);
         }
@@ -513,32 +515,34 @@ export default function App() {
             </div>
           </div>
 
-          {/* Input de Sede Preferida en el Encabezado */}
+          {/* Sede Preferida en el Encabezado */}
           {activeView === 'delivery' && (
-            <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 rounded-xl px-3 py-1.5 shadow-[inset_0_1px_1px_rgba(245,158,11,0.15)]">
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2 shadow-[inset_0_1px_1px_rgba(245,158,11,0.15)]">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 flex-shrink-0" />
                 <label htmlFor="select-sede-preferida" className="text-[10px] font-extrabold uppercase text-amber-300 tracking-wider cursor-pointer">
                   Sede preferida
                 </label>
               </div>
-              <select
-                id="select-sede-preferida"
-                value={preferredSede.ID_SEDE}
-                onChange={(e) => {
-                  const found = sedes.find((s) => s.ID_SEDE === e.target.value);
-                  if (found) {
-                    setPreferredSede(found);
-                  }
-                }}
-                className="bg-black/95 border border-amber-500/40 rounded-lg text-[11px] font-bold text-amber-200 focus:outline-none focus:border-amber-400 cursor-pointer px-2.5 py-1 truncate max-w-[180px]"
-              >
-                {sedes.map((s) => (
-                  <option key={s.ID_SEDE} value={s.ID_SEDE} className="bg-zinc-950 text-white">
-                    {s.NOMBRE_SEDE.split(',')[0]}
-                  </option>
-                ))}
-              </select>
+              <div className="flex-1 flex justify-end">
+                <select
+                  id="select-sede-preferida"
+                  value={preferredSede.ID_SEDE}
+                  onChange={(e) => {
+                    const found = sedes.find((s) => s.ID_SEDE === e.target.value);
+                    if (found) {
+                      setPreferredSede(found);
+                    }
+                  }}
+                  className="bg-transparent border-none text-xs font-bold text-amber-300 hover:text-amber-200 focus:outline-none cursor-pointer text-right truncate max-w-[200px] p-0"
+                >
+                  {sedes.map((s) => (
+                    <option key={s.ID_SEDE} value={s.ID_SEDE} className="bg-zinc-950 text-white">
+                      {s.NOMBRE_SEDE.split(',')[0]}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
@@ -549,71 +553,16 @@ export default function App() {
         {activeView === 'delivery' && (
           <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 pb-6 md:pb-4 flex flex-col justify-between">
             {/* Grupo de Inputs Superior */}
-            <div className="space-y-3">
-              {/* Selector de Sede */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
+            <div className="space-y-4">
+              {/* 1. Datos del Cliente (Arriba de primero) */}
+              <div className="space-y-1.5 pb-3 border-b border-white/10">
+                <div className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
                   <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">
-                    Sede de Origen
+                    Datos del Cliente
                   </label>
-                  {selectedSede.ID_SEDE !== preferredSede.ID_SEDE && (
-                    <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 " />
-                      No preferida
-                    </span>
-                  )}
                 </div>
-                <div
-                  className={`flex items-center gap-2 border rounded-xl px-3.5 py-2  ${
-                    selectedSede.ID_SEDE !== preferredSede.ID_SEDE
-                      ? 'bg-red-950/25 border-red-500/70 shadow-[0_0_15px_rgba(239,68,68,0.25)]'
-                      : 'bg-white/5 hover:bg-white/10 border-white/15'
-                  }`}
-                >
-                  <Store
-                    className={`w-4 h-4 flex-shrink-0 ${
-                      selectedSede.ID_SEDE !== preferredSede.ID_SEDE ? 'text-[#EF4444]' : 'text-[#00FF00]'
-                    }`}
-                  />
-                  <select
-                    value={selectedSede.ID_SEDE}
-                    onChange={(e) => {
-                      const found = sedes.find((s) => s.ID_SEDE === e.target.value);
-                      if (found) handleSelectSede(found);
-                    }}
-                    className={`bg-transparent text-xs font-bold focus:outline-none cursor-pointer truncate w-full p-0 ${
-                      selectedSede.ID_SEDE !== preferredSede.ID_SEDE ? 'text-red-200' : 'text-white'
-                    }`}
-                  >
-                    {sedes.map((s) => (
-                      <option key={s.ID_SEDE} value={s.ID_SEDE} className="bg-zinc-900 text-white">
-                        {s.NOMBRE_SEDE.split(',')[0]}
-                      </option>
-                    ))}
-                  </select>
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      selectedSede.ID_SEDE !== preferredSede.ID_SEDE
-                        ? 'bg-[#EF4444] shadow-[0_0_8px_#EF4444]'
-                        : sedeSchedule.isOpen
-                        ? 'bg-[#00FF00] shadow-[0_0_8px_#00FF00]'
-                        : 'bg-red-500'
-                    }`}
-                    title={
-                      selectedSede.ID_SEDE !== preferredSede.ID_SEDE
-                        ? 'Sede no preferida seleccionada'
-                        : sedeSchedule.text
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Datos del Cliente */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">
-                  Datos del Cliente
-                </label>
-                <div className="space-y-2">
+                <div className="space-y-2 mt-1">
                   {/* Nombre Cliente */}
                   <div className="relative flex items-center bg-white/5 focus-within:bg-white/10 border border-white/15 focus-within:border-[#00FF00]/70 rounded-xl px-3.5 py-2 ">
                     <User className="w-4 h-4 text-zinc-400 mr-2.5 flex-shrink-0 pointer-events-none" />
@@ -640,87 +589,105 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Resultado de la Zona (Sin cajón / No editable) */}
+              {/* 2. Origen de Envío (Selector de Sede) */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">
-                  Zona de Entrega
-                </label>
-                <div className="flex items-center gap-2 py-1 px-1">
-                  <div className="text-xs font-semibold truncate">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Store className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+                    <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">
+                      Origen de envío
+                    </label>
+                  </div>
+                  {selectedSede.ID_SEDE !== preferredSede.ID_SEDE && (
+                    <span className="text-[10px] font-bold text-red-400 bg-red-500/15 border border-red-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 " />
+                      No preferida
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={`flex items-center gap-2 border rounded-xl px-3.5 py-2  ${
+                    selectedSede.ID_SEDE !== preferredSede.ID_SEDE
+                      ? 'bg-red-950/25 border-red-500/70 shadow-[0_0_15px_rgba(239,68,68,0.25)]'
+                      : 'bg-white/5 hover:bg-white/10 border-white/15'
+                  }`}
+                >
+                  <select
+                    value={selectedSede.ID_SEDE}
+                    onChange={(e) => {
+                      const found = sedes.find((s) => s.ID_SEDE === e.target.value);
+                      if (found) handleSelectSede(found);
+                    }}
+                    className={`bg-transparent text-xs font-bold focus:outline-none cursor-pointer truncate w-full p-0 ${
+                      selectedSede.ID_SEDE !== preferredSede.ID_SEDE ? 'text-red-200' : 'text-white'
+                    }`}
+                  >
+                    {sedes.map((s) => (
+                      <option key={s.ID_SEDE} value={s.ID_SEDE} className="bg-zinc-900 text-white">
+                        {s.NOMBRE_SEDE.split(',')[0]}
+                      </option>
+                    ))}
+                  </select>
+                  <span
+                    className={`text-[9px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 flex-shrink-0 tracking-wide uppercase select-none ${
+                      sedeSchedule.isOpen
+                        ? 'bg-[#00FF00]/15 text-[#00FF00] border border-[#00FF00]/30 shadow-[0_0_10px_rgba(0,255,0,0.15)]'
+                        : 'bg-red-500/15 text-red-400 border border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.15)]'
+                    }`}
+                    title={sedeSchedule.text + (sedeSchedule.nextTime ? ` - ${sedeSchedule.nextTime}` : '')}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        sedeSchedule.isOpen ? 'bg-[#00FF00]' : 'bg-red-500'
+                      }`}
+                    />
+                    {sedeSchedule.isOpen ? 'Abierto' : 'Cerrado'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 3. Destino de Envío (Zona de Entrega) */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+                  <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">
+                    Destino de envío
+                  </label>
+                </div>
+                <div className="flex items-center gap-2 border border-white/15 bg-white/5 hover:bg-white/10 rounded-xl px-3.5 py-2">
+                  <div className="text-xs font-semibold truncate flex-1">
                     {isGeocodingLoading ? (
-                      <span className="text-zinc-400 italic ">Detectando zona...</span>
+                      <span className="text-zinc-400 italic">Detectando zona...</span>
                     ) : zoneText.trim() ? (
                       <span className="text-white font-medium">{zoneText}</span>
+                    ) : destinationCoords ? (
+                      <span className="text-white font-medium">{coordsText}</span>
                     ) : (
-                      <span className="text-zinc-500 italic text-[11px]">Sin zona (ubica un punto en el mapa)</span>
+                      <span className="text-zinc-500 italic text-[11px]">Sin zona (ubica un punto en el mapa o pega link)</span>
                     )}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Parte Inferior: Badge y Selector del Servicio de Ruta al final del Panel */}
-            <div className="pt-6 mt-auto">
+            {/* Parte Inferior: Configuración */}
+            <div className="pt-4 mt-auto">
               <div ref={serviceMenuRef} className="relative">
                 <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider mb-1 block">
-                  Servicio de Ruta
+                  Configuración
                 </label>
-                <button
-                  id="btn-toggle-route-service"
-                  type="button"
-                  onClick={() => setIsServiceMenuOpen((prev) => !prev)}
-                  title="Cambiar servicio de enrutamiento"
-                  className="w-full flex items-center justify-between bg-black/60 hover:bg-black/95 border border-white/10 hover:border-white/20 rounded-xl px-3 py-1.5  text-left cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="relative flex h-2 w-2 flex-shrink-0">
-                      <span
-                        className={` absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                          isCalculatingRoute
-                            ? 'bg-amber-400'
-                            : routingService === 'openrouteservice'
-                            ? 'bg-cyan-400'
-                            : 'bg-[#00FF00]'
-                        }`}
-                      />
-                      <span
-                        className={`relative inline-flex rounded-full h-2 w-2 ${
-                          isCalculatingRoute
-                            ? 'bg-amber-400'
-                            : routingService === 'openrouteservice'
-                            ? 'bg-cyan-400'
-                            : 'bg-[#00FF00]'
-                        }`}
-                      />
-                    </span>
 
-                    {routingService === 'openrouteservice' ? (
-                      <Navigation className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                    ) : (
-                      <Route className="w-3.5 h-3.5 text-[#00FF00] flex-shrink-0" />
-                    )}
-
-                    <div className="flex items-center gap-1.5 truncate">
-                      <span className="text-[11px] font-bold text-white tracking-tight">
-                        {routingService === 'openrouteservice' ? 'OpenRouteService' : 'OSRM Routing'}
-                      </span>
-                      <span className="text-[9px] text-zinc-400 font-medium">
-                        {isCalculatingRoute ? '• Calculando...' : '• Motor de ruta'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 group-hover:text-white   flex-shrink-0 ${isServiceMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {/* Menú Desplegable de Selección de Servicio */}
+                {/* Menú Desplegable de Selección de Servicio de Ruta (Flota arriba del botón de engranaje) */}
                 {isServiceMenuOpen && (
                   <div
                     id="routing-service-dropdown"
-                    className="absolute bottom-full mb-1 left-0 right-0 bg-zinc-950/98  border border-white/20 rounded-xl shadow-[0_12px_35px_rgba(0,0,0,0.85)] p-1.5 flex flex-col gap-1 z-50    "
+                    className="absolute bottom-full mb-2 left-0 right-0 bg-zinc-950/98 border border-white/20 rounded-xl shadow-[0_12px_35px_rgba(0,0,0,0.85)] p-1.5 flex flex-col gap-1 z-50 animate-in fade-in zoom-in-95 duration-150"
                   >
-                    <div className="px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 border-b border-white/10 mb-0.5">
-                      Seleccionar Motor de Ruta
+                    <div className="px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wider text-zinc-400 border-b border-white/10 mb-0.5 flex items-center justify-between">
+                      <span>Motor de Ruta</span>
+                      <span className="text-[8px] text-zinc-500 lowercase font-mono">
+                        {isCalculatingRoute ? 'calculando...' : 'activo'}
+                      </span>
                     </div>
 
                     {/* Opción OSRM */}
@@ -730,7 +697,7 @@ export default function App() {
                         handleChangeRoutingService('osrm');
                         setIsServiceMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left  ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
                         routingService === 'osrm'
                           ? 'bg-[#00FF00]/15 border border-[#00FF00]/40 text-[#00FF00]'
                           : 'text-zinc-200 hover:bg-white/10 hover:text-white border border-transparent'
@@ -753,7 +720,7 @@ export default function App() {
                         handleChangeRoutingService('openrouteservice');
                         setIsServiceMenuOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left  ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
                         routingService === 'openrouteservice'
                           ? 'bg-cyan-500/15 border border-cyan-400/40 text-cyan-300'
                           : 'text-zinc-200 hover:bg-white/10 hover:text-white border border-transparent'
@@ -768,42 +735,78 @@ export default function App() {
                       </div>
                       {routingService === 'openrouteservice' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
                     </button>
+
+                    {/* Opción Extractor Edge Function */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsServiceMenuOpen(false);
+                        setIsEdgeConfigOpen(true);
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-zinc-200 hover:bg-white/10 hover:text-white border border-transparent mt-1 pt-1.5 border-t border-white/10"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Server className="w-3.5 h-3.5 text-emerald-400" />
+                        <div>
+                          <div className="text-xs font-bold text-white">Edge Function Maps</div>
+                          <div className="text-[9px] text-zinc-400">Configurar resolver de Google Maps</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-zinc-500" />
+                    </button>
                   </div>
                 )}
-              </div>
 
-              {/* Tema de Mapa */}
-              <div className="mt-4">
-                <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider mb-1 block">
-                  Tema de Mapa
-                </label>
-                <div className="grid grid-cols-3 gap-1.5">
+                {/* Botones de Configuración: Oscuro, Calles, Satélite y Engranaje */}
+                <div className="grid grid-cols-4 gap-1.5">
                   <button
+                    type="button"
                     onClick={() => setMapTheme('dark')}
-                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors ${
+                    title="Tema Oscuro"
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors cursor-pointer ${
                       mapTheme === 'dark' ? 'border-[#00FF00] text-[#00FF00] shadow-[0_0_15px_rgba(0,255,0,0.15)]' : 'border-white/10 text-zinc-400'
                     }`}
                   >
                     <Moon className="w-3.5 h-3.5 mb-1" />
-                    <span className="text-[8px] font-bold uppercase tracking-wider">Oscuro</span>
+                    <span className="text-[8px] font-bold uppercase tracking-wider truncate">Oscuro</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => setMapTheme('voyager')}
-                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors ${
+                    title="Tema Calles (Claro)"
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors cursor-pointer ${
                       mapTheme === 'voyager' ? 'border-amber-400 text-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.15)]' : 'border-white/10 text-zinc-400'
                     }`}
                   >
                     <Compass className="w-3.5 h-3.5 mb-1" />
-                    <span className="text-[8px] font-bold uppercase tracking-wider">Calles (Claro)</span>
+                    <span className="text-[8px] font-bold uppercase tracking-wider truncate">Calles</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => setMapTheme('satellite')}
-                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors ${
+                    title="Tema Satélite"
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors cursor-pointer ${
                       mapTheme === 'satellite' ? 'border-green-400 text-green-400 shadow-[0_0_15px_rgba(74,222,128,0.15)]' : 'border-white/10 text-zinc-400'
                     }`}
                   >
                     <Globe className="w-3.5 h-3.5 mb-1" />
-                    <span className="text-[8px] font-bold uppercase tracking-wider">Satélite</span>
+                    <span className="text-[8px] font-bold uppercase tracking-wider truncate">Satélite</span>
+                  </button>
+                  <button
+                    id="btn-toggle-route-service"
+                    type="button"
+                    onClick={() => setIsServiceMenuOpen((prev) => !prev)}
+                    title={`Servicio de ruta: ${routingService === 'openrouteservice' ? 'OpenRouteService' : 'OSRM'} (Click para cambiar)`}
+                    className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border bg-black/60 hover:bg-black/80 transition-colors cursor-pointer ${
+                      isServiceMenuOpen
+                        ? 'border-cyan-400 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.25)] ring-1 ring-cyan-400/50'
+                        : routingService === 'openrouteservice'
+                        ? 'border-cyan-500/50 text-cyan-400'
+                        : 'border-white/10 text-zinc-400 hover:text-white hover:border-white/20'
+                    }`}
+                  >
+                    <Settings className={`w-3.5 h-3.5 mb-1 ${isServiceMenuOpen ? 'rotate-90 transition-transform duration-200' : ''}`} />
+                    <span className="text-[8px] font-bold uppercase tracking-wider truncate">Motor</span>
                   </button>
                 </div>
               </div>
@@ -1133,65 +1136,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal de ayuda para enlaces cortos en GitHub Pages o entornos estáticos */}
-      {shortLinkModalUrl && (
-        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-[#111318] border border-white/15 rounded-3xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4 text-left">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
-                  <MapPin className="w-5 h-5 text-amber-400" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-white">Enlace de Google Maps</h3>
-                  <p className="text-xs text-zinc-400">Hosting estático (GitHub Pages)</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShortLinkModalUrl(null)}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Los enlaces cortos (<code className="text-amber-300 font-mono">maps.app.goo.gl</code>) no contienen coordenadas numéricas en el texto, sino que son redirecciones que Google procesa en sus servidores. Al ejecutar la app en <strong className="text-white">GitHub Pages</strong> (hosting 100% estático sin servidor backend propio), los navegadores bloquean la redirección automática por políticas de seguridad (CORS).
-            </p>
-
-            <div className="bg-black/40 border border-white/10 rounded-2xl p-3.5 flex flex-col gap-2">
-              <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">
-                Solución rápida en 2 pasos:
-              </span>
-              <ol className="text-xs text-zinc-300 list-decimal list-inside space-y-1.5 leading-relaxed">
-                <li>Haz clic en el botón de abajo para <strong>abrir la ubicación en Google Maps</strong>.</li>
-                <li>Copia el enlace completo de la barra del navegador (que ya incluye <code className="text-emerald-300">@lat,lng</code>) o copia las coordenadas numéricas y pégalas aquí.</li>
-              </ol>
-            </div>
-
-            <div className="flex gap-2.5 mt-2">
-              <a
-                href={shortLinkModalUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setShortLinkModalUrl(null)}
-                className="flex-1 bg-[#00FF00] hover:bg-[#00e600] text-black font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-transform active:scale-95 shadow-[0_0_15px_rgba(0,255,0,0.3)] text-center"
-              >
-                <Globe className="w-4 h-4" />
-                Abrir en Google Maps
-              </a>
-              <button
-                type="button"
-                onClick={() => setShortLinkModalUrl(null)}
-                className="bg-white/10 hover:bg-white/20 text-white text-xs font-semibold py-3 px-4 rounded-xl transition-colors cursor-pointer"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal de configuración de Edge Function para Google Maps en GitHub Pages */}
+      <EdgeFunctionConfigModal
+        isOpen={isEdgeConfigOpen}
+        onClose={() => setIsEdgeConfigOpen(false)}
+        onSuccessToast={showToast}
+      />
 
       <OfflineIndicator />
       <ToastNotification toasts={toasts} onDismiss={handleDismissToast} />

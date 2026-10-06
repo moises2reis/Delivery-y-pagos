@@ -1,5 +1,5 @@
 import { RouteCalculation, RoutingService, Sede } from '../types';
-import { supabase } from '../core/supabase';
+import { supabase, getMapsResolverUrl, DEFAULT_MAPS_FUNCTION } from '../core/supabase';
 
 /**
  * Calcula la distancia en kilómetros en línea recta (Fórmula de Haversine)
@@ -370,13 +370,71 @@ export async function extraerCoordenadas(
 
   // Si es un enlace acortado de Google Maps, lo resolvemos
   if (isGoogleMapsShortLink(texto)) {
-    // 1. Intentar endpoint backend (/api/resolve-maps-url o VITE_API_URL si está en GitHub Pages)
+    // 1. Intentar con URL personalizada de Edge Function / Resolver (configurada en el panel o localStorage)
+    const customUrl = getMapsResolverUrl();
+    if (customUrl) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const response = await fetch(customUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: texto, action: 'resolve_url' }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
+            return data.coords;
+          }
+          if (data.resolvedUrl) {
+            const fromResolved = parsearCoordenadas(data.resolvedUrl);
+            if (fromResolved) return fromResolved;
+          }
+        }
+      } catch (customErr) {
+        // Continuar al siguiente método si la Edge Function personalizada falla o aún no está desplegada
+      }
+    }
+
+    // 2. Intentar invocar Edge Functions de Supabase por nombre
+    const functionNames = [
+      (import.meta as any).env?.VITE_SUPABASE_MAPS_FUNCTION,
+      DEFAULT_MAPS_FUNCTION,
+      'Logica_maps',
+      'resolve-maps-url',
+      'maps-resolver',
+      'swift-handler',
+    ].filter(Boolean);
+
+    for (const fn of functionNames) {
+      try {
+        const { data, error } = await supabase.functions.invoke(fn, {
+          body: { url: texto, action: 'resolve_url' },
+        });
+        if (!error && data) {
+          if (data.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
+            return data.coords;
+          }
+          if (data.resolvedUrl) {
+            const fromResolved = parsearCoordenadas(data.resolvedUrl);
+            if (fromResolved) return fromResolved;
+          }
+        }
+      } catch (sbErr) {
+        // Continuar con el siguiente nombre de función
+      }
+    }
+
+    // 3. Intentar endpoint backend local (/api/resolve-maps-url) si la app corre en Node
     try {
       const apiBase = (import.meta as any).env?.VITE_API_URL || '';
       const endpoint = apiBase ? `${apiBase.replace(/\/$/, '')}/api/resolve-maps-url` : '/api/resolve-maps-url';
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -397,38 +455,32 @@ export async function extraerCoordenadas(
         }
       }
     } catch (e) {
-      console.warn('No se pudo resolver el enlace vía backend local/remoto:', e);
+      // Ignorar fallo de backend en entornos estáticos como GitHub Pages
     }
 
-    // 2. Fallback: Intentar con Supabase Edge Function (ideal para GitHub Pages)
-    const functionNames = [
-      (import.meta as any).env?.VITE_SUPABASE_MAPS_FUNCTION,
-      'resolve-maps-url',
-      'swift-handler',
-    ].filter(Boolean);
+    // 4. Servicio universal cliente (unshorten.me con CORS abierto para GitHub Pages)
+    try {
+      const cleanUrl = texto.trim().split('?')[0];
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`https://unshorten.me/json/${encodeURIComponent(cleanUrl)}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    for (const fn of functionNames) {
-      try {
-        const { data, error } = await supabase.functions.invoke(fn, {
-          body: { url: texto, action: 'resolve_url' },
-        });
-        if (!error && data) {
-          if (data.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
-            return data.coords;
-          }
-          if (data.resolvedUrl) {
-            const fromResolved = parsearCoordenadas(data.resolvedUrl);
-            if (fromResolved) return fromResolved;
-          }
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.resolved_url) {
+          const fromResolved = parsearCoordenadas(data.resolved_url);
+          if (fromResolved) return fromResolved;
         }
-      } catch (sbErr) {
-        // Continuar con el siguiente nombre de función si existe
       }
-    }
+    } catch (_) {}
   }
 
   return null;
 }
+
 
 /**
  * Determina en tiempo real si una sede está Abierta o Cerrada y la próxima hora de cambio
