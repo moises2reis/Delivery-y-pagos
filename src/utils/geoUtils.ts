@@ -400,17 +400,30 @@ export async function extraerCoordenadas(
       console.warn('No se pudo resolver el enlace vía backend local/remoto:', e);
     }
 
-    // 2. Fallback: Intentar con Supabase Edge Function si está configurada (útil para GitHub Pages)
-    try {
-      const { data, error } = await supabase.functions.invoke('swift-handler', {
-        body: { action: 'resolve_url', url: texto },
-        headers: { 'x-region': 'sa-east-1' },
-      });
-      if (!error && data?.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
-        return data.coords;
+    // 2. Fallback: Intentar con Supabase Edge Function (ideal para GitHub Pages)
+    const functionNames = [
+      (import.meta as any).env?.VITE_SUPABASE_MAPS_FUNCTION,
+      'resolve-maps-url',
+      'swift-handler',
+    ].filter(Boolean);
+
+    for (const fn of functionNames) {
+      try {
+        const { data, error } = await supabase.functions.invoke(fn, {
+          body: { url: texto, action: 'resolve_url' },
+        });
+        if (!error && data) {
+          if (data.coords && isValidCoord(data.coords.lat, data.coords.lng)) {
+            return data.coords;
+          }
+          if (data.resolvedUrl) {
+            const fromResolved = parsearCoordenadas(data.resolvedUrl);
+            if (fromResolved) return fromResolved;
+          }
+        }
+      } catch (sbErr) {
+        // Continuar con el siguiente nombre de función si existe
       }
-    } catch (sbErr) {
-      // Supabase Edge Function fallback silenciado si no implementa resolve_url
     }
   }
 
