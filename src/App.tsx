@@ -954,35 +954,6 @@ export default function App() {
           }}
         />
 
-        {/* Barra flotante para aceptar o cancelar cuando se mueve el mapa libremente con el pin en el centro */}
-        {isManualPinMode && (
-          <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[900] flex flex-col items-center gap-2.5 pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 w-[92%] sm:w-auto max-w-sm">
-            <div className="bg-black/90 backdrop-blur-md border border-[#00FF00]/40 px-4 py-1.5 rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.8)] text-center flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-[#00FF00] animate-ping" />
-              <span className="text-[11px] text-zinc-200 font-medium">Mueve el mapa para ubicar el destino</span>
-            </div>
-
-            <div className="flex items-center gap-2.5 w-full justify-center">
-              <button
-                type="button"
-                onClick={handleCancelManualPin}
-                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-zinc-900/95 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/20 text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-              >
-                <X className="w-4 h-4 text-zinc-400" />
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAcceptManualPin()}
-                className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl bg-[#00FF00] hover:bg-[#00e600] text-black text-xs font-extrabold transition-all shadow-[0_0_20px_rgba(0,255,0,0.4)] active:scale-95 flex items-center justify-center gap-2 cursor-pointer ring-2 ring-[#00FF00]/50"
-              >
-                <Check className="w-4 h-4 stroke-[3]" />
-                Aceptar ubicación
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Métricas Separadas Redondeadas y Botón Enviar Céntricos en el Mapa (Ocultos durante ajuste manual) */}
         {!isManualPinMode && (
           <div className="absolute bottom-3 sm:bottom-5 left-3 right-3 sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-md z-[850] pointer-events-none">
@@ -1047,17 +1018,17 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Botón Enviar (Rojo si no es la preferida, Verde si es la preferida, Gris si deshabilitado) */}
+              {/* Botón Enviar (Rojo si es la ruta más larga o no es la preferida, Verde si es la óptima, Gris si deshabilitado) */}
               <div className="relative z-10">
                 <button
                   id="btn-enviar-appdelivery"
                   type="button"
                   onClick={handleSendToSheet}
                   disabled={isSendingToSheet || !routeData || !destinationCoords}
-                  className={`w-full py-3.5 px-6 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center border-2 ${
+                  className={`w-full py-3.5 px-6 rounded-full font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center border-2 transition-all ${
                     isSendingToSheet || !routeData || !destinationCoords
                       ? 'bg-zinc-800 text-zinc-500 border-zinc-700 shadow-none cursor-not-allowed'
-                      : selectedSede.ID_SEDE !== preferredSede.ID_SEDE
+                      : !isClosestSede || selectedSede.ID_SEDE !== preferredSede.ID_SEDE
                         ? 'bg-[#EF4444] text-white border-[#EF4444] shadow-[0_0_35px_rgba(239,68,68,0.95)] hover:bg-[#dc2626] cursor-pointer'
                         : 'bg-[#00FF00] text-black border-[#00FF00] shadow-[0_0_35px_rgba(0,255,0,0.95)] hover:bg-[#1aff1a] cursor-pointer'
                   } active:scale-[0.98]`}

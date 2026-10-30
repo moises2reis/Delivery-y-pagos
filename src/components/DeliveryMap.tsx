@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { RoutingService, Sede, MapTheme } from '../types';
+import { Check, X } from 'lucide-react';
 
 const CARTO_API_KEY = (import.meta as any).env?.VITE_CARTO_API_KEY || 'cb1_2y4n_1_a3bf62a7af9beccb1b129b78';
 
@@ -55,6 +56,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   isManualPinMode,
   mapTheme = 'dark',
   onAcceptManualPin,
+  onCancelManualPin,
   onCoordsLiveUpdate,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -65,7 +67,6 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   // Store current interactive pin coords
   const currentPinCoordsRef = useRef<{ lat: number; lng: number } | null>(destinationCoords);
-  const [localCoords, setLocalCoords] = useState<{ lat: number; lng: number } | null>(destinationCoords);
   const [isMapMoving, setIsMapMoving] = useState(false);
 
   // Keep callback refs fresh to avoid stale closures in Leaflet events
@@ -81,10 +82,12 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   const onAcceptManualPinRef = useRef(onAcceptManualPin);
   onAcceptManualPinRef.current = onAcceptManualPin;
 
-  // Keep local coords in sync when destinationCoords changes externally
+  const onCancelManualPinRef = useRef(onCancelManualPin);
+  onCancelManualPinRef.current = onCancelManualPin;
+
+  // Keep coords ref in sync when destinationCoords changes externally
   useEffect(() => {
     currentPinCoordsRef.current = destinationCoords;
-    setLocalCoords(destinationCoords);
   }, [destinationCoords]);
 
   // Centrar el mapa cuando se activa el modo de pin manual superpuesto en el centro
@@ -282,8 +285,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
     // En modo de ajuste manual el pin está superpuesto fijamente en el centro de la pantalla
     if (isManualPinMode) return;
 
-    const activeCoords = localCoords || destinationCoords;
-    if (!activeCoords) return;
+    if (!destinationCoords) return;
 
     // Minimalist Red Pin with precise anchor at bottom tip
     const userPinHtml = `
@@ -304,7 +306,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       iconAnchor: [40, 42], // Exactly at the needle tip of the SVG pin
     });
 
-    const marker = L.marker([activeCoords.lat, activeCoords.lng], {
+    const marker = L.marker([destinationCoords.lat, destinationCoords.lng], {
       icon,
       draggable: false,
       autoPan: false,
@@ -397,6 +399,43 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
               }`}
             />
             <div className="w-2.5 h-2.5 rounded-full border-2 border-white bg-red-600 shadow-md -mt-1.5 ring-2 ring-red-500/50" />
+          </div>
+        </div>
+      )}
+
+      {/* Barra flotante para aceptar o cancelar cuando se mueve el mapa libremente con el pin en el centro */}
+      {isManualPinMode && (
+        <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[700] flex flex-col items-center gap-2.5 pointer-events-auto animate-in fade-in slide-in-from-bottom-3 duration-200 w-[92%] sm:w-auto max-w-sm">
+          <div className="bg-black/90 backdrop-blur-md border border-[#00FF00]/40 px-4 py-1.5 rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.8)] text-center flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[#00FF00] animate-ping" />
+            <span className="text-[11px] text-zinc-200 font-medium">Mueve el mapa para ubicar el destino</span>
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full justify-center">
+            <button
+              type="button"
+              onClick={() => onCancelManualPinRef.current?.()}
+              className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-zinc-900/95 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/20 text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+            >
+              <X className="w-4 h-4 text-zinc-400" />
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const center = mapInstanceRef.current ? mapInstanceRef.current.getCenter() : null;
+                const finalCoords = center
+                  ? { lat: center.lat, lng: center.lng }
+                  : currentPinCoordsRef.current || destinationCoords;
+                if (finalCoords) {
+                  onAcceptManualPinRef.current?.(finalCoords);
+                }
+              }}
+              className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl bg-[#00FF00] hover:bg-[#00e600] text-black text-xs font-extrabold transition-all shadow-[0_0_20px_rgba(0,255,0,0.4)] active:scale-95 flex items-center justify-center gap-2 cursor-pointer ring-2 ring-[#00FF00]/50"
+            >
+              <Check className="w-4 h-4 stroke-[3]" />
+              Aceptar ubicación
+            </button>
           </div>
         </div>
       )}

@@ -103,12 +103,17 @@ function safeParseDate(val) {
 let cachedClientIp = '127.0.0.1';
 
 async function callSupabase(action, payload) {
-  // Convert fechaPago from YYYY-MM-DD to DD/MM/YYYY only for Binance manual verification
+  // Asegurar que fechaPago esté siempre en formato YYYY-MM-DD para Binance y BDV
   const processedPayload = { ...payload };
-  if (action === 'binance' && processedPayload.fechaPago) {
-    const parts = String(processedPayload.fechaPago).split('-');
-    if (parts.length === 3 && parts[0].length === 4) {
-      processedPayload.fechaPago = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  if (processedPayload.fechaPago) {
+    const str = String(processedPayload.fechaPago).trim();
+    // Si viene como DD/MM/YYYY o DD-MM-YYYY, convertir a YYYY-MM-DD
+    const dmParts = str.split(/[\/\-]/);
+    if (dmParts.length === 3 && dmParts[2].length === 4) {
+      const day = dmParts[0].padStart(2, '0');
+      const month = dmParts[1].padStart(2, '0');
+      const year = dmParts[2];
+      processedPayload.fechaPago = `${year}-${month}-${day}`;
     }
   }
 
@@ -261,6 +266,29 @@ export const verificarPagosViewHTML = `
       padding: 12px 12px 14px !important;
     }
   }
+
+  /* Asegurar visibilidad de opciones del selector en app de escritorio (Chromium/Windows/Mac) */
+  #bdvBancoOrigen,
+  .verificar-pagos-container select {
+    color-scheme: dark !important;
+    background-color: #18181b !important;
+    color: var(--ink, #ffffff) !important;
+  }
+  #bdvBancoOrigen option,
+  .verificar-pagos-container select option {
+    background-color: #18181b !important;
+    color: #f4f4f5 !important;
+  }
+  #bdvBancoOrigen option:checked,
+  .verificar-pagos-container select option:checked {
+    background-color: #27272a !important;
+    color: #ffffff !important;
+  }
+  #bdvBancoOrigen option[value=""],
+  .verificar-pagos-container select option[value=""] {
+    background-color: #18181b !important;
+    color: #a1a1aa !important;
+  }
 </style>
 <div class="verificar-pagos-container" style="width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 12px 16px 40px; box-sizing: border-box; font-family: var(--font);">
   
@@ -392,9 +420,9 @@ export const verificarPagosViewHTML = `
               <label for="bdvBancoOrigen" style="display: block; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px;">
                 Banco de Origen
               </label>
-              <select id="bdvBancoOrigen" required onchange="this.style.color = this.value ? 'var(--ink)' : 'var(--muted)'" style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; box-sizing: border-box; margin: 0; padding: 0 12px; font-size: 13px; background: var(--fill); border: 1px solid var(--hair); border-radius: 10px; color: var(--muted); font-family: inherit; font-weight: 500; outline: none; transition: 0s;">
-                <option value="" selected style="color: var(--muted);">Selecciona un banco...</option>
-                ${VENEZUELAN_BANKS.map(b => `<option value="${b.code}" style="color: var(--ink);">${b.name} (${b.code})</option>`).join('')}
+              <select id="bdvBancoOrigen" required onchange="this.style.color = this.value ? '#f4f4f5' : '#a1a1aa'" style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; box-sizing: border-box; margin: 0; padding: 0 12px; font-size: 13px; background-color: #18181b; border: 1px solid var(--hair); border-radius: 10px; color: #a1a1aa; font-family: inherit; font-weight: 500; outline: none; transition: 0s; color-scheme: dark;">
+                <option value="" selected style="background-color: #18181b; color: #a1a1aa;">Selecciona un banco...</option>
+                ${VENEZUELAN_BANKS.map(b => `<option value="${b.code}" style="background-color: #18181b; color: #f4f4f5;">${b.name} (${b.code})</option>`).join('')}
               </select>
             </div>
 
@@ -602,12 +630,12 @@ export const verificarPagosViewHTML = `
                   </div>
                 </div>
 
-                <!-- Número de Referencia -->
+                <!-- Número de Referencia: Últimos 4 del ID de orden -->
                 <div style="min-width: 0;">
                   <label for="manualBinanceLast4" style="display: block; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px;">
-                    Referencia
+                    Últimos 4 del ID de Orden
                   </label>
-                  <input id="manualBinanceLast4" type="text" required placeholder="Últimos 4 dígitos" maxlength="4" oninput="this.value = this.value.toUpperCase()" style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; padding: 0 12px; box-sizing: border-box; margin: 0; font-size: 13px; background: var(--fill); border: 1px solid var(--hair); border-radius: 10px; color: var(--ink); font-family: inherit; font-weight: 500; outline: none; transition: 0s;">
+                  <input id="manualBinanceLast4" type="text" required placeholder="Ej: 5328 (últimos 4 del ID de orden)" maxlength="36" oninput="this.value = this.value.toUpperCase()" style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; padding: 0 12px; box-sizing: border-box; margin: 0; font-size: 13px; background: var(--fill); border: 1px solid var(--hair); border-radius: 10px; color: var(--ink); font-family: inherit; font-weight: 500; outline: none; transition: 0s;">
                 </div>
 
                 <!-- Fecha del Pago -->
@@ -1162,7 +1190,7 @@ function renderResultCard(record, shouldScroll = true) {
         ${isSuccess ? `
         <button type="button" onclick="window.openDigitalReceipt()" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 14px; background: #059669; color: #FFFFFF; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(5,150,105,0.25); transition: 0s;">
           <svg class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <span>PER, Comprobante</span>
+          <span>Ver Comprobante</span>
         </button>
         ` : ''}
         <button type="button" onclick="window.copySummaryRecord()" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 14px; background: var(--fill); color: var(--ink); border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--hair); cursor: pointer; transition: 0s;">
@@ -1305,7 +1333,7 @@ window.pasteToBdvForm = async () => {
       const bankSelect = document.getElementById('bdvBancoOrigen');
       if (bankSelect && [...bankSelect.options].some(o => o.value === bankMatch[1])) {
         bankSelect.value = bankMatch[1];
-        bankSelect.style.color = 'var(--ink)';
+        bankSelect.style.color = '#f4f4f5';
       }
     }
 
@@ -1444,7 +1472,7 @@ window.resetBdvForm = () => {
   const bankSelect = document.getElementById('bdvBancoOrigen');
   if (bankSelect) {
     bankSelect.value = '';
-    bankSelect.style.color = 'var(--muted)';
+    bankSelect.style.color = '#a1a1aa';
   }
   const phone = document.getElementById('bdvTelefono');
   if (phone) phone.value = '';
@@ -1851,7 +1879,7 @@ window.pasteToBinanceForm = async () => {
     const text = await navigator.clipboard.readText();
     if (!text) return;
 
-    // Amount
+    // 1. Amount (e.g. "Monto: 7.13 USDT", "7,13", "$7.13")
     const amtMatch = text.match(/(?:usdt|\$|monto:?)?\s*(\d{1,3}(?:[\.,]\d{3})*(?:,\d{1,2}|\.\d{1,2})?)\s*(?:usdt|\$)?/i);
     if (amtMatch) {
        const amtInput = document.getElementById('manualBinanceImporte');
@@ -1865,20 +1893,53 @@ window.pasteToBinanceForm = async () => {
        }
     }
 
-    // Reference (Looks for numbers containing letters or just large numbers/IDs)
-    const refMatch = text.match(/(?:order id|id|referencia|ref):?\s*([A-Za-z0-9]+)/i);
+    // 2. ID de Orden de Binance Pay (prioridad: últimos 4 dígitos del ID de orden)
+    const orderMatch = text.match(/(?:id de orden|order id|id orden|orden)\s*:?\s*([0-9]{4,32})/i);
     let refValue = '';
-    if (refMatch && refMatch[1].length >= 4) {
-       refValue = refMatch[1];
+    if (orderMatch) {
+       // Extraer específicamente los últimos 4 dígitos del ID de orden
+       refValue = orderMatch[1].slice(-4);
     } else {
-       const nums = text.match(/\b[A-Za-z0-9]{4,20}\b/g) || [];
-       const possibleRef = nums.find(n => /\d/.test(n) && n !== amtMatch?.[1]);
-       if (possibleRef) refValue = possibleRef;
+       // Buscar número largo típico de ID de orden de Binance (15-22 dígitos)
+       const longIdMatch = text.match(/\b([0-9]{15,22})\b/);
+       if (longIdMatch) {
+         refValue = longIdMatch[1].slice(-4);
+       } else {
+         const refMatch = text.match(/(?:referencia|ref|id):?\s*([A-Za-z0-9_]+)/i);
+         if (refMatch && refMatch[1].length >= 4) {
+           refValue = refMatch[1].slice(-4);
+         } else {
+           const nums = text.match(/\b[A-Za-z0-9_]{4,32}\b/g) || [];
+           const possibleRef = nums.find(n => /\d/.test(n) && n !== amtMatch?.[1]);
+           if (possibleRef) refValue = possibleRef.slice(-4);
+         }
+       }
     }
     
     if (refValue) {
       const refInput = document.getElementById('manualBinanceLast4');
-      if (refInput) refInput.value = refValue.slice(-4).toUpperCase();
+      if (refInput) {
+        refInput.value = refValue.toUpperCase();
+      }
+    }
+
+    // 3. Date (e.g. "Fecha: 2026-10-06" o "Emitido el: 6/10/2026")
+    const dateMatch = text.match(/(?:fecha|date|emitido el):?\s*(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/i);
+    if (dateMatch) {
+      const dateInput = document.getElementById('manualBinanceFecha');
+      if (dateInput) {
+        const rawDate = dateMatch[1];
+        const parts = rawDate.split(/[-\/]/);
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            // YYYY-MM-DD
+            dateInput.value = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+          } else if (parts[2].length === 4) {
+            // DD/MM/YYYY
+            dateInput.value = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          }
+        }
+      }
     }
 
     toast('Datos pegados desde el portapapeles');
@@ -1912,28 +1973,82 @@ window.handleBinanceManualSubmit = async (e) => {
   hideResultCard();
 
   try {
-    const resData = await callSupabase("binance", {
+    let resData = await callSupabase("binance", {
       importe: numAmount,
       last4,
       fechaPago,
     });
 
+    let isVerified = Number(resData?.code) === 1000;
+
+    // Respaldo Inteligente: Si la API de Binance directa no concilia, contrastamos con el historial de transacciones recibidas
+    if (!isVerified) {
+      let trxs = cachedBinanceTransactions;
+      if (!trxs || trxs.length === 0) {
+        try {
+          const fresh = await callSupabase('recent_transactions', {});
+          if (fresh?.data?.transacciones && Array.isArray(fresh.data.transacciones)) {
+            trxs = fresh.data.transacciones;
+            cachedBinanceTransactions = trxs;
+          }
+        } catch (_) {}
+      }
+
+      if (Array.isArray(trxs) && trxs.length > 0) {
+        const needle = last4.toUpperCase();
+        const needle4 = needle.slice(-4);
+        const matched = trxs.find(t => {
+          const tAmount = parseFloat(t.amount);
+          if (isNaN(tAmount) || Math.abs(tAmount - numAmount) > 0.01) return false;
+
+          const tOrder = String(t.orderId || '').toUpperCase();
+          const tRef = String(t.transactionId || '').toUpperCase();
+
+          // Prioridad: Coincidencia con los últimos 4 dígitos del ID de orden
+          const matchOrderLast4 = tOrder.endsWith(needle4) || tOrder.endsWith(needle);
+          const matchOrderFull = tOrder.includes(needle) || needle.includes(tOrder);
+          const matchRefLast4 = tRef.endsWith(needle4) || tRef.endsWith(needle);
+          const matchRefFull = tRef.includes(needle) || needle.includes(tRef);
+
+          return matchOrderLast4 || matchOrderFull || matchRefLast4 || matchRefFull;
+        });
+
+        if (matched) {
+          isVerified = true;
+          resData = {
+            code: 1000,
+            message: 'Pago Binance Pay validado correctamente.',
+            data: {
+              status: '1000',
+              amount: parseFloat(matched.amount).toFixed(2),
+              currency: matched.currency || 'USDT',
+              date: matched.fecha || fechaPago,
+              reference: matched.transactionId || matched.orderId || last4,
+              orderId: matched.orderId || null,
+              transactionId: matched.transactionId || null,
+              payerName: matched.contraparte || 'Usuario Binance',
+              paymentTime: matched.hora ? `${matched.hora}:00` : null,
+              paymentDateTime: matched.hora ? `${matched.fecha || fechaPago} ${matched.hora}:00` : null,
+              merchantId: matched.merchantId || DEFAULT_MERCHANT_CONFIG.binanceId
+            }
+          };
+        }
+      }
+    }
 
     const code = Number(resData?.code ?? 1010);
-    const isVerified = code === 1000;
-    const isRejected = code === 1010;
+    const isRejected = !isVerified && code === 1010;
 
     currentResult = {
       id: 'rec_' + Date.now(),
       timestamp: new Date().toISOString(),
       channel: 'binance',
       status: isVerified ? 'verified' : isRejected ? 'rejected' : 'error',
-      code,
+      code: isVerified ? 1000 : code,
       message:
-        resData?.message ||
         (isVerified
           ? '✓ Pago verificado exitosamente en Binance Pay v3'
-          : 'Comprobante no coincide o no encontrado'),
+          : (resData?.message || 'Comprobante no coincide o no encontrado')),
       amount: numAmount.toFixed(2),
       currency: 'USDT',
       reference:
@@ -1941,7 +2056,7 @@ window.handleBinanceManualSubmit = async (e) => {
         resData?.data?.transactionId ||
         resData?.data?.prepayId ||
         (last4.length >= 8 ? last4 : `***${last4.slice(-4)}`),
-      paymentDate: fechaPago,
+      paymentDate: resData?.data?.date || fechaPago,
       payerDoc: resData?.data?.merchantId || DEFAULT_MERCHANT_CONFIG.binanceId,
       bankName: 'Binance Pay (Merchant: 1272190851)',
       orderId: resData?.data?.orderId || null,

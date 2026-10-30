@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 html, body {
+  color-scheme: dark;
   overscroll-behavior-y: none;
   overflow-x: hidden;
   touch-action: pan-x pan-y;
@@ -12,6 +13,27 @@ html, body {
 input, textarea, select {
   -webkit-user-select: text;
   user-select: text;
+  color-scheme: dark;
+}
+
+/* Fix desktop OS/browser select dropdowns rendering white backgrounds with invisible text */
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+}
+
+select option:checked {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}
+
+select option[value=""] {
+  background-color: #18181b !important;
+  color: #a1a1aa !important;
 }
 
 /* Leaflet container fixes */
