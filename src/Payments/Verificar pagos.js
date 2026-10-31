@@ -4,29 +4,29 @@ import QRCode from 'qrcode';
 import { supabase } from '../core/supabase.js';
 
 export const VENEZUELAN_BANKS = [
-  { code: '0102', name: 'Banco de Venezuela' },
-  { code: '0104', name: 'Venezolano de Crédito' },
-  { code: '0105', name: 'Mercantil Banco' },
-  { code: '0108', name: 'BBVA Provincial' },
-  { code: '0114', name: 'Bancaribe' },
-  { code: '0115', name: 'Banco Exterior' },
-  { code: '0128', name: 'Banco Caroní' },
-  { code: '0134', name: 'Banesco Banco Universal' },
-  { code: '0137', name: 'Banco Sofitasa' },
-  { code: '0138', name: 'Banco Plaza' },
-  { code: '0151', name: 'BFC Banco Fondo Común' },
-  { code: '0156', name: '100% Banco' },
-  { code: '0157', name: 'Banco Del Sur' },
-  { code: '0163', name: 'Banco del Tesoro' },
-  { code: '0166', name: 'Banco Agrícola de Venezuela' },
-  { code: '0168', name: 'Bancrecer' },
-  { code: '0169', name: 'Mi Banco' },
-  { code: '0171', name: 'Banco Activo' },
-  { code: '0172', name: 'Bancamiga Banco Universal' },
-  { code: '0174', name: 'Banplus Banco Universal' },
-  { code: '0175', name: 'Banco Bicentenario' },
-  { code: '0177', name: 'BANFANB' },
-  { code: '0191', name: 'Banco Nacional de Crédito' }
+  { code: '0102', name: 'Banco de Venezuela', aliases: 'bdv venezuela' },
+  { code: '0104', name: 'Venezolano de Crédito', aliases: 'bvc venezolano credito' },
+  { code: '0105', name: 'Mercantil Banco', aliases: 'mercantil' },
+  { code: '0108', name: 'BBVA Provincial', aliases: 'provincial bbva' },
+  { code: '0114', name: 'Bancaribe', aliases: 'caribe bancaribe' },
+  { code: '0115', name: 'Banco Exterior', aliases: 'exterior' },
+  { code: '0128', name: 'Banco Caroní', aliases: 'caroni' },
+  { code: '0134', name: 'Banesco Banco Universal', aliases: 'banesco' },
+  { code: '0137', name: 'Banco Sofitasa', aliases: 'sofitasa' },
+  { code: '0138', name: 'Banco Plaza', aliases: 'plaza' },
+  { code: '0151', name: 'BFC Banco Fondo Común', aliases: 'bfc fondo comun' },
+  { code: '0156', name: '100% Banco', aliases: '100 banco cien' },
+  { code: '0157', name: 'Banco Del Sur', aliases: 'delsur sur' },
+  { code: '0163', name: 'Banco del Tesoro', aliases: 'tesoro bt' },
+  { code: '0166', name: 'Banco Agrícola de Venezuela', aliases: 'agricola bav' },
+  { code: '0168', name: 'Bancrecer', aliases: 'bancrecer crecer' },
+  { code: '0169', name: 'Mi Banco', aliases: 'mibanco r4' },
+  { code: '0171', name: 'Banco Activo', aliases: 'activo' },
+  { code: '0172', name: 'Bancamiga Banco Universal', aliases: 'bancamiga amiga' },
+  { code: '0174', name: 'Banplus Banco Universal', aliases: 'banplus plus' },
+  { code: '0175', name: 'Banco Bicentenario', aliases: 'bicentenario' },
+  { code: '0177', name: 'BANFANB', aliases: 'banfanb fanb fuerza armada' },
+  { code: '0191', name: 'Banco Nacional de Crédito', aliases: 'bnc nacional credito' }
 ];
 
 // Cuentas BDV soportadas según backend Supabase
@@ -305,10 +305,10 @@ export const verificarPagosViewHTML = `
     </header>
 
     <!-- Tarjeta Principal de Verificación -->
-    <div id="paymentMainCard" class="card" style="background: var(--card); border-radius: 20px; border: 1px solid var(--hair); box-shadow: var(--sh-2); overflow: hidden; transition: 0s;">
+    <div id="paymentMainCard" class="card" style="background: var(--card); border-radius: 20px; border: 1px solid var(--hair); box-shadow: var(--sh-2); overflow: visible; transition: 0s;">
       
       <!-- Selector de Canales (Pestañas Superiores) -->
-      <div style="display: flex; gap: 6px; padding: 6px; background: var(--fill); border-bottom: 1px solid var(--hair);">
+      <div style="display: flex; gap: 6px; padding: 6px; background: var(--fill); border-bottom: 1px solid var(--hair); border-radius: 20px 20px 0 0;">
         <button type="button" id="tabChannelBdv" class="vp-channel-tab" onclick="window.setPaymentChannel('bdv')" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border-radius: 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: 0s; background: #DC2626; color: #FFFFFF; border: none; box-shadow: 0 2px 8px rgba(220,38,38,0.25);">
           <svg class="ic" viewBox="0 0 24 24" fill="none" style="width: 15px; height: 15px; stroke: currentColor;"><rect x="5" y="2" width="14" height="20" rx="2" fill="none"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
           <span>Pago Móvil BDV</span>
@@ -415,15 +415,39 @@ export const verificarPagosViewHTML = `
               <input id="bdvTelefono" type="tel" required placeholder="04245678910" maxlength="11" oninput="this.value = this.value.replace(/[^0-9]/g, '')" style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; padding: 0 12px; box-sizing: border-box; margin: 0; font-size: 13px; background: var(--fill); border: 1px solid var(--hair); border-radius: 10px; color: var(--ink); font-family: inherit; font-weight: 500; outline: none; transition: 0s;">
             </div>
 
-            <!-- 4. Banco de Origen -->
-            <div style="min-width: 0;">
-              <label for="bdvBancoOrigen" style="display: block; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px;">
+            <!-- 4. Banco de Origen (Buscador Inteligente Predictivo) -->
+            <div id="bdvBancoAutocompleteWrap" style="min-width: 0; position: relative;">
+              <label for="bdvBancoSearchInput" style="display: block; font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 5px;">
                 Banco de Origen
               </label>
-              <select id="bdvBancoOrigen" required onchange="this.style.color = this.value ? '#f4f4f5' : '#a1a1aa'" style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; box-sizing: border-box; margin: 0; padding: 0 12px; font-size: 13px; background-color: #18181b; border: 1px solid var(--hair); border-radius: 10px; color: #a1a1aa; font-family: inherit; font-weight: 500; outline: none; transition: 0s; color-scheme: dark;">
-                <option value="" selected style="background-color: #18181b; color: #a1a1aa;">Selecciona un banco...</option>
-                ${VENEZUELAN_BANKS.map(b => `<option value="${b.code}" style="background-color: #18181b; color: #f4f4f5;">${b.name} (${b.code})</option>`).join('')}
-              </select>
+              <input id="bdvBancoOrigen" type="hidden" value="">
+              <div style="position: relative; width: 100%; min-width: 0;">
+                <input
+                  id="bdvBancoSearchInput"
+                  type="text"
+                  required
+                  autocomplete="off"
+                  placeholder="Escribe banco o código (ej: Banesco o 0134)..."
+                  onfocus="window.openBankSuggestions()"
+                  oninput="window.handleBankSearchInput(this.value)"
+                  onkeydown="window.handleBankSearchKeyDown(event)"
+                  style="display: block; width: 100%; max-width: 100%; min-width: 0; height: 38px; padding: 0 34px 0 12px; box-sizing: border-box; margin: 0; font-size: 13px; background: var(--fill); border: 1px solid var(--hair); border-radius: 10px; color: var(--ink); font-family: inherit; font-weight: 500; outline: none; transition: 0s;"
+                >
+                <button
+                  type="button"
+                  id="btnClearOrToggleBank"
+                  onclick="window.toggleOrClearBankDropdown(event)"
+                  tabindex="-1"
+                  style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; border: none; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 6px; padding: 0;"
+                  title="Ver lista de bancos"
+                >
+                  <svg id="icBankChevron" class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
+              <div
+                id="bdvBancoSuggestions"
+                style="display: none; position: absolute; left: 0; right: 0; top: calc(100% + 5px); z-index: 300; max-height: 220px; overflow-y: auto; background: #18181b; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; box-shadow: 0 12px 28px rgba(0,0,0,0.8); padding: 5px; flex-direction: column; gap: 2px;"
+              ></div>
             </div>
 
             <!-- 5. Fecha del Pago -->
@@ -1034,6 +1058,12 @@ document.addEventListener('click', (e) => {
   if (dropdown && menu && !dropdown.contains(e.target)) {
     menu.style.display = 'none';
   }
+
+  const bankWrap = document.getElementById('bdvBancoAutocompleteWrap');
+  const bankSug = document.getElementById('bdvBancoSuggestions');
+  if (bankWrap && bankSug && !bankWrap.contains(e.target)) {
+    bankSug.style.display = 'none';
+  }
 });
 
 window.setPaymentChannel = (channel) => {
@@ -1319,6 +1349,261 @@ window.handleBdvCreateLink = (e) => {
 };
 
 // ============================================================
+// BUSCADOR INTELIGENTE PREDICTIVO DE BANCOS (BDV)
+// ============================================================
+
+let bankHighlightIndex = -1;
+let currentFilteredBanks = [...VENEZUELAN_BANKS];
+
+function normalizeBankStr(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function getFilteredBanks(rawQuery) {
+  const q = normalizeBankStr(rawQuery);
+  if (!q) return [...VENEZUELAN_BANKS];
+
+  // Si el usuario tiene escrito el formato completo "Nombre (01XX)" tras seleccionar, mostrar todos o filtrar limpio
+  const selectedMatch = q.match(/\((\d{4})\)$/);
+  if (selectedMatch) {
+    const exactBank = VENEZUELAN_BANKS.find(b => b.code === selectedMatch[1]);
+    if (exactBank && normalizeBankStr(`${exactBank.name} (${exactBank.code})`) === q) {
+      return [...VENEZUELAN_BANKS];
+    }
+  }
+
+  const scored = [];
+  for (const bank of VENEZUELAN_BANKS) {
+    const normName = normalizeBankStr(bank.name);
+    const normAliases = normalizeBankStr(bank.aliases || '');
+    const code = bank.code;
+    const shortCode = code.replace(/^0+/, ''); // ej: 102, 134
+
+    let score = 0;
+    if (code === q || shortCode === q) {
+      score = 100;
+    } else if (code.startsWith(q) || shortCode.startsWith(q)) {
+      score = 92;
+    } else if (normName === q || normAliases.split(/\s+/).includes(q)) {
+      score = 90;
+    } else if (normName.startsWith(q)) {
+      score = 85;
+    } else if (normAliases.split(/\s+/).some(w => w.startsWith(q))) {
+      score = 82;
+    } else if (normName.split(/\s+/).some(w => w.startsWith(q))) {
+      score = 78;
+    } else if (code.includes(q) || normName.includes(q) || normAliases.includes(q)) {
+      score = 60;
+    }
+
+    if (score > 0) {
+      scored.push({ bank, score });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.bank.code.localeCompare(b.bank.code));
+  return scored.map(item => item.bank);
+}
+
+function updateBankActionIcon() {
+  const searchInput = document.getElementById('bdvBancoSearchInput');
+  const btn = document.getElementById('btnClearOrToggleBank');
+  if (!searchInput || !btn) return;
+
+  const hasText = searchInput.value.trim().length > 0;
+  if (hasText) {
+    btn.title = 'Limpiar banco';
+    btn.innerHTML = `<svg class="ic" viewBox="0 0 24 24" style="width: 13px; height: 13px; stroke: currentColor;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+  } else {
+    btn.title = 'Ver lista de bancos';
+    btn.innerHTML = `<svg id="icBankChevron" class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><polyline points="6 9 12 15 18 9"/></svg>`;
+  }
+}
+
+function renderBankSuggestions(banks, highlightIdx = -1) {
+  const container = document.getElementById('bdvBancoSuggestions');
+  const hiddenInput = document.getElementById('bdvBancoOrigen');
+  if (!container) return;
+
+  const selectedCode = hiddenInput ? hiddenInput.value : '';
+
+  if (!banks || banks.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 12px 10px; text-align: center; font-size: 12px; color: #a1a1aa;">
+        No se encontraron bancos con ese nombre o código
+      </div>
+    `;
+    container.style.display = 'flex';
+    return;
+  }
+
+  container.innerHTML = banks.map((b, idx) => {
+    const isHighlighted = idx === highlightIdx;
+    const isSelected = b.code === selectedCode;
+    const bg = isHighlighted
+      ? 'rgba(220, 38, 38, 0.22)'
+      : isSelected
+        ? 'rgba(255, 255, 255, 0.08)'
+        : 'transparent';
+    const border = isHighlighted
+      ? '1px solid rgba(220, 38, 38, 0.45)'
+      : '1px solid transparent';
+
+    return `
+      <button
+        type="button"
+        data-bank-idx="${idx}"
+        onmousedown="event.preventDefault(); window.selectBankOption('${b.code}')"
+        onmouseover="this.style.background='rgba(255,255,255,0.08)'"
+        onmouseout="this.style.background='${bg}'"
+        style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 10px; border-radius: 8px; border: ${border}; background: ${bg}; color: #f4f4f5; font-size: 12.5px; font-weight: 500; text-align: left; cursor: pointer; box-sizing: border-box; transition: 0s;"
+      >
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: ${isSelected || isHighlighted ? '700' : '500'}; color: #f4f4f5;">
+          ${b.name}
+        </span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; color: ${isHighlighted ? '#FCA5A5' : '#38BDF8'}; background: rgba(255,255,255,0.06); padding: 2px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0;">
+          ${b.code}
+        </span>
+      </button>
+    `;
+  }).join('');
+
+  container.style.display = 'flex';
+
+  if (highlightIdx >= 0) {
+    const activeBtn = container.querySelector(`[data-bank-idx="${highlightIdx}"]`);
+    if (activeBtn && typeof activeBtn.scrollIntoView === 'function') {
+      activeBtn.scrollIntoView({ block: 'nearest' });
+    }
+  }
+}
+
+window.openBankSuggestions = () => {
+  const searchInput = document.getElementById('bdvBancoSearchInput');
+  const query = searchInput ? searchInput.value : '';
+  currentFilteredBanks = getFilteredBanks(query);
+  bankHighlightIndex = query.trim() ? 0 : -1;
+  renderBankSuggestions(currentFilteredBanks, bankHighlightIndex);
+  updateBankActionIcon();
+};
+
+window.handleBankSearchInput = (val) => {
+  const hiddenInput = document.getElementById('bdvBancoOrigen');
+  currentFilteredBanks = getFilteredBanks(val);
+  bankHighlightIndex = currentFilteredBanks.length > 0 ? 0 : -1;
+
+  // Si coincide exactamente con un código de 4 dígitos (ej. 0134) o solo hay 1 coincidencia exacta, pre-asignar el código
+  const trimmed = String(val || '').trim();
+  const exactCodeBank = VENEZUELAN_BANKS.find(
+    b => b.code === trimmed || normalizeBankStr(`${b.name} (${b.code})`) === normalizeBankStr(trimmed)
+  );
+  if (hiddenInput) {
+    hiddenInput.value = exactCodeBank ? exactCodeBank.code : '';
+  }
+
+  renderBankSuggestions(currentFilteredBanks, bankHighlightIndex);
+  updateBankActionIcon();
+};
+
+window.handleBankSearchKeyDown = (e) => {
+  const container = document.getElementById('bdvBancoSuggestions');
+  const isOpen = container && container.style.display !== 'none';
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!isOpen) {
+      window.openBankSuggestions();
+      return;
+    }
+    if (currentFilteredBanks.length > 0) {
+      bankHighlightIndex = (bankHighlightIndex + 1) % currentFilteredBanks.length;
+      renderBankSuggestions(currentFilteredBanks, bankHighlightIndex);
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!isOpen) {
+      window.openBankSuggestions();
+      return;
+    }
+    if (currentFilteredBanks.length > 0) {
+      bankHighlightIndex = (bankHighlightIndex - 1 + currentFilteredBanks.length) % currentFilteredBanks.length;
+      renderBankSuggestions(currentFilteredBanks, bankHighlightIndex);
+    }
+  } else if (e.key === 'Enter') {
+    if (isOpen && currentFilteredBanks.length > 0) {
+      e.preventDefault();
+      const targetBank = currentFilteredBanks[bankHighlightIndex >= 0 ? bankHighlightIndex : 0];
+      if (targetBank) {
+        window.selectBankOption(targetBank.code);
+      }
+    }
+  } else if (e.key === 'Tab') {
+    if (isOpen && currentFilteredBanks.length > 0 && bankHighlightIndex >= 0) {
+      const searchInput = document.getElementById('bdvBancoSearchInput');
+      const hiddenInput = document.getElementById('bdvBancoOrigen');
+      if (searchInput && searchInput.value.trim() && (!hiddenInput || !hiddenInput.value)) {
+        const targetBank = currentFilteredBanks[bankHighlightIndex];
+        if (targetBank) {
+          window.selectBankOption(targetBank.code);
+        }
+      }
+    }
+  } else if (e.key === 'Escape') {
+    if (container) container.style.display = 'none';
+  }
+};
+
+window.selectBankOption = (code) => {
+  const bank = VENEZUELAN_BANKS.find(b => b.code === code);
+  const hiddenInput = document.getElementById('bdvBancoOrigen');
+  const searchInput = document.getElementById('bdvBancoSearchInput');
+  const container = document.getElementById('bdvBancoSuggestions');
+
+  if (bank) {
+    if (hiddenInput) hiddenInput.value = bank.code;
+    if (searchInput) {
+      searchInput.value = `${bank.name} (${bank.code})`;
+      searchInput.style.color = '#f4f4f5';
+    }
+  }
+  if (container) container.style.display = 'none';
+  updateBankActionIcon();
+};
+
+window.toggleOrClearBankDropdown = (e) => {
+  if (e) e.stopPropagation();
+  const searchInput = document.getElementById('bdvBancoSearchInput');
+  const hiddenInput = document.getElementById('bdvBancoOrigen');
+  const container = document.getElementById('bdvBancoSuggestions');
+
+  if (searchInput && searchInput.value.trim().length > 0) {
+    searchInput.value = '';
+    if (hiddenInput) hiddenInput.value = '';
+    currentFilteredBanks = [...VENEZUELAN_BANKS];
+    bankHighlightIndex = -1;
+    renderBankSuggestions(currentFilteredBanks, -1);
+    updateBankActionIcon();
+    searchInput.focus();
+    return;
+  }
+
+  const isOpen = container && container.style.display !== 'none';
+  if (isOpen) {
+    container.style.display = 'none';
+  } else {
+    currentFilteredBanks = [...VENEZUELAN_BANKS];
+    bankHighlightIndex = -1;
+    renderBankSuggestions(currentFilteredBanks, -1);
+    if (searchInput) searchInput.focus();
+  }
+  updateBankActionIcon();
+};
+
+// ============================================================
 // BDV VERIFICATION SUBMISSION & CLIPBOARD
 // ============================================================
 
@@ -1327,14 +1612,23 @@ window.pasteToBdvForm = async () => {
     const text = await navigator.clipboard.readText();
     if (!text) return;
 
-    // Bank (01XX format)
+    // Bank: detect 01XX code first, or bank name/alias in clipboard text
     const bankMatch = text.match(/\b(01\d{2})\b/);
-    if (bankMatch) {
-      const bankSelect = document.getElementById('bdvBancoOrigen');
-      if (bankSelect && [...bankSelect.options].some(o => o.value === bankMatch[1])) {
-        bankSelect.value = bankMatch[1];
-        bankSelect.style.color = '#f4f4f5';
-      }
+    let matchedBankCode = '';
+    if (bankMatch && VENEZUELAN_BANKS.some(b => b.code === bankMatch[1])) {
+      matchedBankCode = bankMatch[1];
+    } else {
+      const normClip = normalizeBankStr(text);
+      const byName = VENEZUELAN_BANKS.find(b => {
+        const normName = normalizeBankStr(b.name);
+        const aliasWords = normalizeBankStr(b.aliases || '').split(/\s+/).filter(w => w.length >= 3);
+        return normClip.includes(normName) || aliasWords.some(w => new RegExp(`\\b${w}\\b`).test(normClip));
+      });
+      if (byName) matchedBankCode = byName.code;
+    }
+
+    if (matchedBankCode) {
+      window.selectBankOption(matchedBankCode);
     }
 
     // Phone (starts with 04 and has 11 digits)
@@ -1383,7 +1677,25 @@ window.pasteToBdvForm = async () => {
 
 window.handleBdvSubmit = async (e) => {
   e.preventDefault();
-  const bancoOrigen = document.getElementById('bdvBancoOrigen').value;
+  const hiddenBankInput = document.getElementById('bdvBancoOrigen');
+  const searchBankInput = document.getElementById('bdvBancoSearchInput');
+  let bancoOrigen = hiddenBankInput ? hiddenBankInput.value : '';
+
+  // Si el usuario escribió el nombre o código del banco pero no hizo clic en la sugerencia, resolver predictivamente
+  if (!bancoOrigen && searchBankInput && searchBankInput.value.trim()) {
+    const matches = getFilteredBanks(searchBankInput.value);
+    if (matches.length > 0) {
+      bancoOrigen = matches[0].code;
+      window.selectBankOption(bancoOrigen);
+    }
+  }
+
+  if (!bancoOrigen) {
+    toast('Seleccione un banco de origen válido');
+    if (searchBankInput) searchBankInput.focus();
+    return;
+  }
+
   const telefonoPagador = document.getElementById('bdvTelefono').value.trim();
   const referencia = document.getElementById('bdvReferencia').value.trim();
   const importeStr = document.getElementById('bdvImporte').value;
@@ -1469,11 +1781,14 @@ window.handleBdvSubmit = async (e) => {
 };
 
 window.resetBdvForm = () => {
-  const bankSelect = document.getElementById('bdvBancoOrigen');
-  if (bankSelect) {
-    bankSelect.value = '';
-    bankSelect.style.color = '#a1a1aa';
-  }
+  const bankHidden = document.getElementById('bdvBancoOrigen');
+  if (bankHidden) bankHidden.value = '';
+  const bankSearch = document.getElementById('bdvBancoSearchInput');
+  if (bankSearch) bankSearch.value = '';
+  const bankSug = document.getElementById('bdvBancoSuggestions');
+  if (bankSug) bankSug.style.display = 'none';
+  updateBankActionIcon();
+
   const phone = document.getElementById('bdvTelefono');
   if (phone) phone.value = '';
   const ref = document.getElementById('bdvReferencia');
