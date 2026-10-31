@@ -65,9 +65,509 @@ export const DEFAULT_MERCHANT_CONFIG = {
   supabaseAnonKey: envAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0eHpzZWZtZWplcmN2d2xhcmZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMzE2NjIsImV4cCI6MjEwNDgwNzY2Mn0.oxjaY99j5dvFWfOPiXSVCigc1MKKLxTXMjNB1m_IxVw' // Llave anon public de Supabase
 };
 
+export const PAYMENTS_SHEET_API_URL =
+  'https://script.google.com/macros/s/AKfycbzc2H9UsKIo9P9u4wspPFHKzAWEEoshXt-C2msC6dIQd_p1cq8Zf4gRklEeSZMhs24_Tw/exec';
+
 export function getBankName(code) {
   const bank = VENEZUELAN_BANKS.find(b => b.code === code);
   return bank ? bank.name : `Banco (${code})`;
+}
+
+const VP_HEADER_CACHE_KEY = 'pos_vp_header_meta_v1';
+
+function getCachedHeaderMeta() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(VP_HEADER_CACHE_KEY) : null;
+    if (!raw) return { caja: '', turno: '10:00', usuario: '', sede: '' };
+    const parsed = JSON.parse(raw);
+    return {
+      caja: typeof parsed?.caja === 'string' ? parsed.caja : '',
+      turno: typeof parsed?.turno === 'string' && parsed.turno ? parsed.turno : '10:00',
+      usuario: typeof parsed?.usuario === 'string' ? parsed.usuario : '',
+      sede: typeof parsed?.sede === 'string' ? parsed.sede : ''
+    };
+  } catch (_) {
+    return { caja: '', turno: '10:00', usuario: '', sede: '' };
+  }
+}
+
+export function saveHeaderMetaToCache() {
+  if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
+  try {
+    const prev = getCachedHeaderMeta();
+    const cajaEl = document.getElementById('vpMetaCaja');
+    const turnoEl = document.getElementById('vpMetaTurnoEntrada');
+    const usuarioEl = document.getElementById('vpMetaUsuario');
+    const sedeEl = document.getElementById('vpMetaSede');
+
+    const next = {
+      caja: cajaEl ? cajaEl.value.trim() : prev.caja,
+      turno: turnoEl ? (turnoEl.value.trim() || '10:00') : prev.turno,
+      usuario: usuarioEl ? usuarioEl.value.trim() : prev.usuario,
+      sede: sedeEl ? sedeEl.value.trim() : prev.sede
+    };
+    localStorage.setItem(VP_HEADER_CACHE_KEY, JSON.stringify(next));
+  } catch (_) {}
+}
+
+export function restoreHeaderMetaFromCache() {
+  if (typeof document === 'undefined') return;
+  const cached = getCachedHeaderMeta();
+  const cajaEl = document.getElementById('vpMetaCaja');
+  const turnoEl = document.getElementById('vpMetaTurnoEntrada');
+  const usuarioEl = document.getElementById('vpMetaUsuario');
+  const sedeEl = document.getElementById('vpMetaSede');
+
+  if (cajaEl && cached.caja) {
+    cajaEl.value = cached.caja;
+  }
+  if (turnoEl) {
+    turnoEl.value = cached.turno || '10:00';
+    if (turnoEl.value) {
+      turnoEl.classList.add('has-time-val');
+    } else {
+      turnoEl.classList.remove('has-time-val');
+    }
+  }
+  if (usuarioEl && cached.usuario) {
+    usuarioEl.value = cached.usuario;
+  }
+  if (sedeEl && cached.sede) {
+    sedeEl.value = cached.sede;
+  }
+}
+
+function getActiveSedeForSheet() {
+  const input = typeof document !== 'undefined' ? document.getElementById('vpMetaSede') : null;
+  const val = input ? input.value.trim() : '';
+  return val || getCachedHeaderMeta().sede || '';
+}
+
+function getCajaForSheet() {
+  const input = typeof document !== 'undefined' ? document.getElementById('vpMetaCaja') : null;
+  const val = input ? input.value.trim() : '';
+  return val || getCachedHeaderMeta().caja || '';
+}
+
+function getTurnoForSheet() {
+  const input = typeof document !== 'undefined' ? document.getElementById('vpMetaTurnoEntrada') : null;
+  const raw = (input && input.value.trim()) ? input.value.trim() : (getCachedHeaderMeta().turno || '');
+  if (!raw) return '';
+  // Convertir HH:MM de input type="time" a formato 12h (ej: 10:00am, 2:30pm)
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (match) {
+    let h = parseInt(match[1], 10);
+    const m = match[2];
+    const period = h >= 12 ? 'pm' : 'am';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${m}${period}`;
+  }
+  return raw;
+}
+
+function getUsuarioForSheet() {
+  const input = typeof document !== 'undefined' ? document.getElementById('vpMetaUsuario') : null;
+  const val = input ? input.value.trim() : '';
+  return val || getCachedHeaderMeta().usuario || '';
+}
+
+function validateVpMetaFields() {
+  const fields = [
+    { id: 'vpMetaCaja', pillId: 'pillMetaCaja', label: 'Caja' },
+    { id: 'vpMetaTurnoEntrada', pillId: 'pillMetaTurno', label: 'Turno de entrada' },
+    { id: 'vpMetaUsuario', pillId: 'pillMetaUsuario', label: 'Usuario' },
+    { id: 'vpMetaSede', pillId: 'pillMetaSede', label: 'Sede' }
+  ];
+
+  for (const f of fields) {
+    const el = document.getElementById(f.id);
+    const pill = document.getElementById(f.pillId);
+    const val = el ? el.value.trim() : '';
+    if (!val) {
+      if (pill) {
+        pill.style.borderColor = '#EF4444';
+        pill.style.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.25)';
+      }
+      if (el) {
+        el.focus();
+        if (f.id === 'vpMetaTurnoEntrada' && typeof el.showPicker === 'function') {
+          try { el.showPicker(); } catch (_) {}
+        }
+      }
+      toast(`Complete el campo obligatorio: ${f.label}`);
+      return false;
+    }
+  }
+  saveHeaderMetaToCache();
+  return true;
+}
+
+const LOCAL_TRANSFERS_STORAGE_KEY = 'pos_verified_transfers_v1';
+
+function getLocalSavedTransfers() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LOCAL_TRANSFERS_STORAGE_KEY) : null;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveTransferLocally(payload) {
+  try {
+    if (typeof localStorage === 'undefined' || !payload) return;
+    const current = getLocalSavedTransfers();
+    current.unshift(payload);
+    localStorage.setItem(LOCAL_TRANSFERS_STORAGE_KEY, JSON.stringify(current.slice(0, 1000)));
+  } catch (_) {}
+}
+
+// Normaliza cualquier valor de turno (ej. "10:00", "10:00am", o Date de Google Sheets) a "10:00am"
+function normalizeTurnoValue(val) {
+  if (!val) return '';
+  const str = String(val).trim().toLowerCase();
+  if (/^\d{1,2}:\d{2}(am|pm)$/.test(str)) return str;
+  const hmMatch = str.match(/^(\d{1,2}):(\d{2})$/);
+  if (hmMatch) {
+    let h = parseInt(hmMatch[1], 10);
+    const m = hmMatch[2];
+    const period = h >= 12 ? 'pm' : 'am';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${m}${period}`;
+  }
+  const d = new Date(val);
+  if (!isNaN(d.getTime())) {
+    let h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const period = h >= 12 ? 'pm' : 'am';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${m}${period}`;
+  }
+  return str;
+}
+
+function filterTransfersClientSide(list, filtros = {}) {
+  let result = Array.isArray(list) ? [...list] : [];
+
+  if (filtros.fecha && String(filtros.fecha).trim() !== '') {
+    const fQuery = String(filtros.fecha).trim();
+    result = result.filter(item => String(item.fecha_hora || '').slice(0, 10) === fQuery);
+  }
+  if (filtros.caja && String(filtros.caja).trim() !== '') {
+    const cQuery = String(filtros.caja).trim().toLowerCase();
+    result = result.filter(item => {
+      const itemCaja = String(item.caja || '').trim().toLowerCase();
+      return itemCaja === cQuery || itemCaja.replace('caja ', '') === cQuery.replace('caja ', '');
+    });
+  }
+  if (filtros.turno && String(filtros.turno).trim() !== '') {
+    const tQuery = normalizeTurnoValue(filtros.turno);
+    result = result.filter(item => {
+      const itemTurno = normalizeTurnoValue(item.turno_entrada || item.turno || '');
+      return itemTurno === tQuery || String(item.turno_entrada || item.turno || '').trim().toLowerCase() === String(filtros.turno).trim().toLowerCase();
+    });
+  }
+  if (filtros.usuario && String(filtros.usuario).trim() !== '') {
+    const uQuery = String(filtros.usuario).trim().toLowerCase();
+    result = result.filter(item =>
+      String(item.usuario || '').trim().toLowerCase().includes(uQuery)
+    );
+  }
+  if (filtros.sede && String(filtros.sede).trim() !== '') {
+    const sQuery = String(filtros.sede).trim().toLowerCase();
+    result = result.filter(item =>
+      String(item.sede || '').trim().toLowerCase() === sQuery ||
+      String(item.sede || '').trim().toLowerCase().includes(sQuery)
+    );
+  }
+  if (filtros.banco_receptor && String(filtros.banco_receptor).trim() !== '') {
+    const bQuery = String(filtros.banco_receptor).trim().toLowerCase();
+    result = result.filter(item =>
+      String(item.banco_receptor || '').trim().toLowerCase() === bQuery ||
+      String(item.banco_receptor || '').trim().toLowerCase().includes(bQuery)
+    );
+  }
+  if (filtros.empresa && String(filtros.empresa).trim() !== '') {
+    const eQuery = String(filtros.empresa).trim().toLowerCase();
+    result = result.filter(item =>
+      String(item.empresa || '').trim().toLowerCase() === eQuery ||
+      String(item.empresa || '').trim().toLowerCase().includes(eQuery)
+    );
+  }
+
+  return result;
+}
+
+function isPaymentValidForSheet(record) {
+  if (!record) return false;
+  if (Number(record.code) === 1000) return true;
+  const msg = String(record.message || '').toLowerCase();
+  if (
+    msg.includes('conciliado anteriormente') ||
+    msg.includes('ya fue conciliado') ||
+    (msg.includes('consulta realizada es exitosa') && msg.includes('conciliado'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function updateSheetSyncBadgeUI(statusType, textMsg) {
+  const badge = document.getElementById('sheetSyncStatusBadge');
+  if (!badge) return;
+  badge.style.display = 'inline-flex';
+  if (statusType === 'sending') {
+    badge.style.background = 'rgba(59, 130, 246, 0.12)';
+    badge.style.color = '#60A5FA';
+    badge.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+    badge.textContent = textMsg || '⏳ Enviando a Google Sheets...';
+  } else if (statusType === 'success') {
+    badge.style.background = 'rgba(16, 185, 129, 0.15)';
+    badge.style.color = '#10B981';
+    badge.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+    badge.textContent = textMsg || '✓ Guardado en Google Sheets';
+  } else if (statusType === 'duplicate') {
+    badge.style.background = 'rgba(59, 130, 246, 0.14)';
+    badge.style.color = '#60A5FA';
+    badge.style.borderColor = 'rgba(59, 130, 246, 0.35)';
+    badge.textContent = textMsg || '✓ Ya registrado en Google Sheets';
+  } else if (statusType === 'error') {
+    badge.style.background = 'rgba(245, 158, 11, 0.15)';
+    badge.style.color = '#FBBF24';
+    badge.style.borderColor = 'rgba(245, 158, 11, 0.35)';
+    badge.textContent = textMsg || '⚠️ Error en Google Sheets';
+  }
+}
+
+// ENVIAR PAGO VERIFICADO A GOOGLE SHEETS (doPost)
+export async function sendVerifiedPaymentToSheet(record) {
+  if (!isPaymentValidForSheet(record)) return null;
+  const isBdv = record.channel === 'bdv';
+  const telefonoCliente = String(
+    record.payerPhone || record.payerName || record.payerDoc || (isBdv ? 'Sin teléfono' : 'Usuario Binance')
+  ).trim();
+  const montoNum = Number(parseFloat(record.amount) || 0);
+  const referenciaStr = String(record.reference || '').trim();
+
+  const payload = {
+    banco_emisor: String(record.bankName || (isBdv ? getBankName(record.bankCode) : 'Binance Pay')).trim(),
+    telefono_cliente: telefonoCliente || 'N/A',
+    monto_bs: montoNum,
+    referencia: referenciaStr || '0000',
+    fecha_hora: new Date().toISOString(),
+    caja: getCajaForSheet(),
+    turno_entrada: getTurnoForSheet(),
+    usuario: getUsuarioForSheet(),
+    sede: getActiveSedeForSheet(),
+    banco_receptor: isBdv ? 'Banco de Venezuela' : 'Binance Pay',
+    empresa: String(
+      record.merchantName || (isBdv ? DEFAULT_MERCHANT_CONFIG.bdvAccountName : DEFAULT_MERCHANT_CONFIG.binanceAccountName)
+    ).trim()
+  };
+
+  // Respaldo local inmediato para el reporte
+  saveTransferLocally(payload);
+
+  record.sheetSyncType = 'sending';
+  record.sheetSyncText = '⏳ Enviando a Google Sheets...';
+  updateSheetSyncBadgeUI('sending', record.sheetSyncText);
+
+  try {
+    const res = await fetch(PAYMENTS_SHEET_API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => null);
+    if (data && data.spreadsheetUrl) {
+      window.__activeSpreadsheetUrl = data.spreadsheetUrl;
+      const reportLink = document.getElementById('btnOpenActiveGoogleSheet');
+      if (reportLink) reportLink.href = data.spreadsheetUrl;
+      const resultLink = document.getElementById('btnOpenResultGoogleSheet');
+      if (resultLink) {
+        resultLink.href = data.spreadsheetUrl;
+        resultLink.style.display = 'inline-flex';
+      }
+    }
+    if (data && data.status === 'success') {
+      record.sheetSyncType = 'success';
+      record.sheetSyncText = '✓ Guardado en Google Sheets';
+      record.spreadsheetUrl = data.spreadsheetUrl || window.__activeSpreadsheetUrl;
+      updateSheetSyncBadgeUI('success', record.sheetSyncText);
+      toast('✓ Transferencia guardada en Google Sheets');
+    } else if (data && data.status === 'duplicate') {
+      record.sheetSyncType = 'duplicate';
+      record.sheetSyncText = '✓ Ya registrado en Google Sheets';
+      record.spreadsheetUrl = data.spreadsheetUrl || window.__activeSpreadsheetUrl;
+      updateSheetSyncBadgeUI('duplicate', record.sheetSyncText);
+      toast('ℹ️ Esta transferencia ya estaba registrada en Google Sheets');
+    } else if (data && (data.status === 'error' || data.error)) {
+      const errMsg = data.message || data.error || 'Error en Apps Script';
+      record.sheetSyncType = 'error';
+      record.sheetSyncText = `⚠️ Google Sheet: ${errMsg}`;
+      updateSheetSyncBadgeUI('error', record.sheetSyncText);
+      toast(`⚠️ Apps Script: ${errMsg}`);
+    } else {
+      record.sheetSyncType = 'success';
+      record.sheetSyncText = '✓ Enviado a Google Sheets';
+      updateSheetSyncBadgeUI('success', record.sheetSyncText);
+    }
+    return data;
+  } catch (err) {
+    console.warn('[Aviso enviando pago a Google Sheet]:', err);
+    record.sheetSyncType = 'error';
+    record.sheetSyncText = '⚠️ Guardado en Reporte local';
+    updateSheetSyncBadgeUI('error', record.sheetSyncText);
+    return null;
+  }
+}
+
+// FUNCIÓN REUTILIZABLE COMPLETA PARA OBTENER TRANSFERENCIAS GUARDADAS (doGet -> consultarTransferencias)
+export async function obtenerTransferencias(filtros = {}) {
+  const limit = Math.min(Math.max(Number(filtros.limit) || 100, 1), 1000);
+  const offset = Math.max(Number(filtros.offset) || 0, 0);
+
+  // Parámetros exactos soportados por consultarTransferencias(e) en el Apps Script
+  // (Nunca enviar 'banco', 'monto' ni 'monto_$' para no activar manejarBancos)
+  const SERVER_FILTER_KEYS = ['fecha', 'caja', 'turno', 'sede', 'banco_receptor', 'empresa'];
+
+  const buildQueryParams = (omitTurno = false) => {
+    const params = new URLSearchParams();
+    SERVER_FILTER_KEYS.forEach((key) => {
+      if (omitTurno && key === 'turno') return;
+      const value = filtros[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        params.append(key, String(value).trim());
+      }
+    });
+    params.append('limit', String(limit));
+    params.append('offset', String(offset));
+    return params;
+  };
+
+  try {
+    const params = buildQueryParams(false);
+    const response = await fetch(`${PAYMENTS_SHEET_API_URL}?${params.toString()}`);
+    let data = await response.json().catch(() => null);
+    if (data && data.spreadsheetUrl && typeof window !== 'undefined') {
+      window.__activeSpreadsheetUrl = data.spreadsheetUrl;
+      const reportLink = document.getElementById('btnOpenActiveGoogleSheet');
+      if (reportLink) reportLink.href = data.spreadsheetUrl;
+    }
+
+    // Si se filtró por turno y el servidor devolvió 0 resultados (ej. Google Sheets formateó la celda de hora como Date),
+    // reintentamos sin el parámetro turno en servidor y filtramos el turno en cliente
+    if (
+      data &&
+      data.status === 'success' &&
+      Array.isArray(data.data) &&
+      data.data.length === 0 &&
+      filtros.turno &&
+      String(filtros.turno).trim() !== ''
+    ) {
+      const retryParams = buildQueryParams(true);
+      const retryRes = await fetch(`${PAYMENTS_SHEET_API_URL}?${retryParams.toString()}`);
+      const retryData = await retryRes.json().catch(() => null);
+      if (retryData && retryData.status === 'success' && Array.isArray(retryData.data)) {
+        data = retryData;
+      }
+    }
+
+    if (data && (data.status === 'success' || Array.isArray(data.data) || Array.isArray(data))) {
+      let remotas = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      // Aplicar filtrado en cliente para 'usuario' y normalización de 'turno'
+      remotas = filterTransfersClientSide(remotas, filtros);
+
+      const hasClientSideOnlyFilter = Boolean(
+        (filtros.usuario && String(filtros.usuario).trim() !== '') ||
+        (filtros.turno && String(filtros.turno).trim() !== '')
+      );
+      const total = typeof data?.total === 'number' && !hasClientSideOnlyFilter
+        ? data.total
+        : remotas.length;
+
+      return {
+        transacciones: remotas,
+        total,
+        limit,
+        offset,
+        hayMas: total > (offset + limit),
+        remoteStatus: 'success'
+      };
+    }
+
+    // Respaldo local si el Apps Script devuelve error (ej. SPREADSHEET_ID inválido en Apps Script)
+    const locales = filterTransfersClientSide(getLocalSavedTransfers(), filtros);
+    const paginadas = locales.slice(offset, offset + limit);
+    return {
+      transacciones: paginadas,
+      total: locales.length,
+      limit,
+      offset,
+      hayMas: locales.length > (offset + limit),
+      remoteStatus: data?.status || 'fallback',
+      remoteMessage: data?.message || null
+    };
+  } catch (err) {
+    const locales = filterTransfersClientSide(getLocalSavedTransfers(), filtros);
+    const paginadas = locales.slice(offset, offset + limit);
+    return {
+      transacciones: paginadas,
+      total: locales.length,
+      limit,
+      offset,
+      hayMas: locales.length > (offset + limit),
+      remoteStatus: 'offline_fallback',
+      remoteMessage: err?.message || null
+    };
+  }
+}
+
+// CONSULTAR PAGOS EN GOOGLE SHEETS (Alias compatible)
+export async function consultarPagosSheet(filtros = {}) {
+  const res = await obtenerTransferencias(filtros);
+  return res.transacciones || [];
+}
+
+if (typeof window !== 'undefined') {
+  window.sendVerifiedPaymentToSheet = sendVerifiedPaymentToSheet;
+  window.consultarPagosSheet = consultarPagosSheet;
+  window.obtenerTransferencias = obtenerTransferencias;
+  window.clearMetaPillError = (pillId) => {
+    const pill = document.getElementById(pillId);
+    if (pill) {
+      pill.style.borderColor = 'var(--hair)';
+      pill.style.boxShadow = 'none';
+    }
+  };
+  window.openNativeTurnoPicker = (e) => {
+    const input = document.getElementById('vpMetaTurnoEntrada');
+    if (input) {
+      input.focus();
+      if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); } catch (_) {}
+      }
+    }
+  };
+  window.handleTurnoNativeChange = (input) => {
+    if (!input) return;
+    if (input.value) {
+      input.classList.add('has-time-val');
+    } else {
+      input.classList.remove('has-time-val');
+    }
+    saveHeaderMetaToCache();
+    if (window.clearMetaPillError) window.clearMetaPillError('pillMetaTurno');
+    if (typeof window.onMetaPillFilterUpdated === 'function') {
+      window.onMetaPillFilterUpdated();
+    }
+  };
 }
 
 const getTodayDate = () => {
@@ -289,18 +789,72 @@ export const verificarPagosViewHTML = `
     background-color: #18181b !important;
     color: #a1a1aa !important;
   }
+  /* Ocultar texto nativo --:-- cuando el input de hora está vacío */
+  #vpMetaTurnoEntrada:not(.has-time-val)::-webkit-datetime-edit {
+    color: transparent !important;
+  }
+  #vpMetaTurnoEntrada.has-time-val::-webkit-datetime-edit {
+    color: #f4f4f5 !important;
+  }
+  #vpMetaTurnoEntrada::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+    cursor: pointer;
+    opacity: 0.75;
+  }
 </style>
 <div class="verificar-pagos-container" style="width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 12px 16px 40px; box-sizing: border-box; font-family: var(--font);">
   
   <div style="width: 100%; max-width: 660px; display: flex; flex-direction: column; gap: 14px;">
     
-    <!-- Header Minimalista y Centrado -->
-    <header style="display: flex; align-items: center; gap: 10px; padding: 8px 2px;">
-      <div style="display: flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; background: transparent;">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" style="width: 22px; height: 22px; stroke: var(--muted);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+    <!-- Header Minimalista y Pastillas de Sesión (Caja, Turno Entrada, Usuario, Sede) -->
+    <header style="display: flex; flex-direction: column; gap: 10px; padding: 6px 2px 2px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; background: transparent;">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" style="width: 22px; height: 22px; stroke: var(--muted);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+          </div>
+          <div>
+            <h1 id="vpHeaderTitleText" style="font-size: 16px; font-weight: 700; color: var(--ink); margin: 0; letter-spacing: -0.02em; line-height: 1.2;">Verificación de Pagos</h1>
+          </div>
+        </div>
       </div>
-      <div>
-        <h1 style="font-size: 16px; font-weight: 700; color: var(--ink); margin: 0; letter-spacing: -0.02em; line-height: 1.2;">Verificación de Pagos</h1>
+
+      <!-- Pastillas de Input: Caja | Turno entrada | Usuario | Sede -->
+      <div class="vp-meta-pills" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px;">
+        <!-- Caja (Lista desplegable Caja 01 - Caja 05) -->
+        <label id="pillMetaCaja" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: pointer; transition: 0.15s;">
+          <span style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;">Caja:</span>
+          <select id="vpMetaCaja" required onchange="window.clearMetaPillError('pillMetaCaja'); this.style.color = '#f4f4f5'; if (window.onMetaPillFilterUpdated) window.onMetaPillFilterUpdated();" style="min-width: 58px; border: none; background: transparent; color: #f4f4f5; font-size: 11.5px; font-weight: 700; font-family: inherit; outline: none; padding: 0 2px 0 0; margin: 0; cursor: pointer; color-scheme: dark;">
+            <option value="" selected style="background-color: #18181b; color: #a1a1aa;"></option>
+            <option value="Caja 01" style="background-color: #18181b; color: #f4f4f5;">Caja 01</option>
+            <option value="Caja 02" style="background-color: #18181b; color: #f4f4f5;">Caja 02</option>
+            <option value="Caja 03" style="background-color: #18181b; color: #f4f4f5;">Caja 03</option>
+            <option value="Caja 04" style="background-color: #18181b; color: #f4f4f5;">Caja 04</option>
+            <option value="Caja 05" style="background-color: #18181b; color: #f4f4f5;">Caja 05</option>
+          </select>
+        </label>
+
+        <!-- Turno Entrada (Selector de hora y minutos AM/PM nativo del sistema, predeterminado 10:00 AM) -->
+        <label id="pillMetaTurno" onclick="window.openNativeTurnoPicker(event)" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: pointer; transition: 0.15s;">
+          <span style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;">Turno entrada:</span>
+          <input id="vpMetaTurnoEntrada" class="has-time-val" type="time" value="10:00" required oninput="window.handleTurnoNativeChange(this)" onchange="window.handleTurnoNativeChange(this)" style="border: none; background: transparent; color: #f4f4f5; font-size: 11.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; outline: none; padding: 0; margin: 0; cursor: pointer; color-scheme: dark;" />
+        </label>
+
+        <!-- Usuario -->
+        <label id="pillMetaUsuario" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: text; transition: 0.15s;">
+          <span style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;">Usuario:</span>
+          <input id="vpMetaUsuario" type="text" value="" placeholder="" oninput="window.clearMetaPillError('pillMetaUsuario'); if (window.onMetaUsuarioInput) window.onMetaUsuarioInput();" onkeydown="if (event.key === 'Enter') { event.preventDefault(); if (window.onMetaPillFilterUpdated) window.onMetaPillFilterUpdated(); }" style="width: 72px; border: none; background: transparent; color: var(--ink); font-size: 11.5px; font-weight: 600; outline: none; padding: 0; margin: 0;" />
+        </label>
+
+        <!-- Sede (Lista desplegable: Naguanagua, Las Quintas o Av. Bolivar Norte) -->
+        <label id="pillMetaSede" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: pointer; transition: 0.15s;">
+          <span style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;">Sede:</span>
+          <select id="vpMetaSede" required onchange="window.clearMetaPillError('pillMetaSede'); this.style.color = '#f4f4f5'; if (window.onMetaPillFilterUpdated) window.onMetaPillFilterUpdated();" style="min-width: 110px; border: none; background: transparent; color: #f4f4f5; font-size: 11.5px; font-weight: 700; font-family: inherit; outline: none; padding: 0 2px 0 0; margin: 0; cursor: pointer; color-scheme: dark;">
+            <option value="" selected style="background-color: #18181b; color: #a1a1aa;"></option>
+            <option value="Naguanagua, Las Quintas" style="background-color: #18181b; color: #f4f4f5;">Naguanagua, Las Quintas</option>
+            <option value="Av. Bolivar Norte" style="background-color: #18181b; color: #f4f4f5;">Av. Bolivar Norte</option>
+          </select>
+        </label>
       </div>
     </header>
 
@@ -715,6 +1269,140 @@ export const verificarPagosViewHTML = `
 
     </div>
 
+    <!-- ============================================================ -->
+    <!-- TARJETA PRINCIPAL DE REPORTE DE TRANSFERENCIAS GUARDADAS     -->
+    <!-- ============================================================ -->
+    <div id="reporteMainCard" class="card" style="display: none; background: var(--card); border-radius: 20px; border: 1px solid var(--hair); box-shadow: var(--sh-2); overflow: hidden; padding: 16px 18px 20px; flex-direction: column; gap: 14px;">
+      
+      <!-- Encabezado y Botón de Solicitar Transferencias -->
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--hair);">
+        <div style="display: flex; flex-direction: column; gap: 3px;">
+          <span style="font-size: 10px; font-weight: 700; color: #00FF00; text-transform: uppercase; letter-spacing: 0.06em;">Google Sheets · Tiempo Real</span>
+          <h2 style="font-size: 16px; font-weight: 800; color: var(--ink); margin: 0;">Lista de Transferencias Guardadas</h2>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <button
+            type="button"
+            id="btnSolicitarReporte"
+            onclick="window.solicitarReporteTransferencias(0, false)"
+            style="display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 14px; background: #00FF00; color: #000000; font-size: 12px; font-weight: 800; border-radius: 10px; border: none; box-shadow: 0 0 16px rgba(0,255,0,0.3); cursor: pointer;"
+            title="Consultar según Caja, Turno, Usuario y Sede seleccionados arriba"
+          >
+            <svg id="icReporteRefresh" class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span id="lblBtnSolicitarReporte">Solicitar Reporte</span>
+          </button>
+
+          <button
+            type="button"
+            onclick="window.solicitarReporteTransferencias(0, true)"
+            style="display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 11px; background: var(--fill); color: var(--soft); font-size: 11.5px; font-weight: 600; border-radius: 10px; border: 1px solid var(--hair); cursor: pointer;"
+            title="Consultar todas las transferencias sin filtrar por turno o caja"
+          >
+            <span>Ver Todas</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Resumen de Filtros Activos (Caja, Turno, Usuario, Sede) -->
+      <div id="reporteActiveFiltersBar" style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; background: var(--fill); border: 1px solid var(--hair); border-radius: 12px; font-size: 11px;">
+        <span style="color: var(--muted); font-weight: 600;">Filtros activos:</span>
+        <div id="reporteActiveFilterBadges" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;"></div>
+      </div>
+
+      <!-- Filtros Opcionales Adicionales (Fecha, Banco Receptor, Empresa, Buscador) -->
+      <div class="vp-form-grid" style="gap: 10px;">
+        <div>
+          <label for="reporteFilterFecha" style="display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">
+            Fecha (opcional)
+          </label>
+          <input
+            id="reporteFilterFecha"
+            type="date"
+            value=""
+            onchange="window.solicitarReporteTransferencias(0, false)"
+            style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: var(--fill); border: 1px solid var(--hair); border-radius: 9px; color: var(--ink); font-family: inherit; outline: none; color-scheme: dark;"
+          />
+        </div>
+
+        <div>
+          <label for="reporteFilterBancoReceptor" style="display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">
+            Banco Receptor
+          </label>
+          <select
+            id="reporteFilterBancoReceptor"
+            onchange="window.solicitarReporteTransferencias(0, false)"
+            style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: #18181b; border: 1px solid var(--hair); border-radius: 9px; color: #f4f4f5; font-family: inherit; outline: none; color-scheme: dark;"
+          >
+            <option value="" style="background-color: #18181b; color: #f4f4f5;">Todos</option>
+            <option value="Banco de Venezuela" style="background-color: #18181b; color: #f4f4f5;">Banco de Venezuela</option>
+            <option value="Binance Pay" style="background-color: #18181b; color: #f4f4f5;">Binance Pay</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="reporteFilterEmpresa" style="display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">
+            Empresa Receptora
+          </label>
+          <select
+            id="reporteFilterEmpresa"
+            onchange="window.solicitarReporteTransferencias(0, false)"
+            style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: #18181b; border: 1px solid var(--hair); border-radius: 9px; color: #f4f4f5; font-family: inherit; outline: none; color-scheme: dark;"
+          >
+            <option value="" style="background-color: #18181b; color: #f4f4f5;">Todas</option>
+            <option value="TU COMBOX C.A" style="background-color: #18181b; color: #f4f4f5;">TU COMBOX C.A</option>
+            <option value="FABRICA COMBOX C.A" style="background-color: #18181b; color: #f4f4f5;">FABRICA COMBOX C.A</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="reporteFilterSearch" style="display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">
+            Buscar en resultados
+          </label>
+          <input
+            id="reporteFilterSearch"
+            type="text"
+            placeholder="Referencia, teléfono, banco o usuario..."
+            oninput="window.filtrarListaReporteLocal(this.value)"
+            style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: var(--fill); border: 1px solid var(--hair); border-radius: 9px; color: var(--ink); font-family: inherit; outline: none;"
+          />
+        </div>
+      </div>
+
+      <!-- KPIs de Resumen del Reporte -->
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+        <div style="background: var(--fill); border: 1px solid var(--hair); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase;">Transferencias</span>
+          <span id="reporteKpiTotalCount" style="font-size: 16px; font-weight: 800; color: var(--ink); font-family: 'JetBrains Mono', monospace;">0</span>
+        </div>
+        <div style="background: var(--fill); border: 1px solid var(--hair); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase;">Total Bs.</span>
+          <span id="reporteKpiTotalBs" style="font-size: 15px; font-weight: 800; color: #00FF00; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Bs. 0,00</span>
+        </div>
+        <div style="background: var(--fill); border: 1px solid var(--hair); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;">
+          <span style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase;">Total Binance</span>
+          <span id="reporteKpiTotalUsdt" style="font-size: 15px; font-weight: 800; color: #FACC15; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">$0,00</span>
+        </div>
+      </div>
+
+      <!-- Contenedor de Lista de Transferencias -->
+      <div id="reporteTransfersListContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; padding-right: 2px;">
+        <div style="padding: 28px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px dashed var(--hair); border-radius: 12px;">
+          Pulsa <strong>Solicitar Reporte</strong> para consultar las transferencias guardadas.
+        </div>
+      </div>
+
+      <!-- Paginación -->
+      <div id="reportePaginationBar" style="display: none; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--hair); font-size: 11.5px; color: var(--muted);">
+        <span id="reportePaginationInfo">Mostrando 0 de 0</span>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" id="btnReportePrevPage" onclick="window.cambiarPaginaReporte(-1)" style="padding: 6px 12px; border-radius: 8px; background: var(--fill); border: 1px solid var(--hair); color: var(--ink); font-size: 11.5px; font-weight: 600; cursor: pointer;">Anterior</button>
+          <button type="button" id="btnReporteNextPage" onclick="window.cambiarPaginaReporte(1)" style="padding: 6px 12px; border-radius: 8px; background: var(--fill); border: 1px solid var(--hair); color: var(--ink); font-size: 11.5px; font-weight: 600; cursor: pointer;">Siguiente</button>
+        </div>
+      </div>
+
+    </div>
+
   </div>
 
   <!-- Modal Comprobante Digital Certificado -->
@@ -865,6 +1553,7 @@ window.formatAmountOnBlur = (input) => {
 
 export function initVerificarPagos() {
   activeChannel = activeChannel || 'bdv';
+  restoreHeaderMetaFromCache();
   renderMerchantCard();
   updateChannelVisuals();
   
@@ -1064,6 +1753,12 @@ document.addEventListener('click', (e) => {
   if (bankWrap && bankSug && !bankWrap.contains(e.target)) {
     bankSug.style.display = 'none';
   }
+
+  const turnoWrap = document.getElementById('pillMetaTurnoWrap');
+  const turnoPop = document.getElementById('turnoCarouselPopover');
+  if (turnoWrap && turnoPop && !turnoWrap.contains(e.target)) {
+    turnoPop.style.display = 'none';
+  }
 });
 
 window.setPaymentChannel = (channel) => {
@@ -1176,6 +1871,8 @@ function renderResultCard(record, shouldScroll = true) {
   }
 
   const merchantLabel = record.merchantName || (record.channel === 'bdv' ? DEFAULT_MERCHANT_CONFIG.bdvAccountName : DEFAULT_MERCHANT_CONFIG.binanceAccountName);
+  const canSendToSheet = isPaymentValidForSheet(record);
+  const syncText = record.sheetSyncText || (canSendToSheet ? '⏳ Enviando a Google Sheets...' : '');
 
   container.innerHTML = `
     <div style="border-radius: 14px; padding: 14px; background: ${bg}; border: 1px solid ${border}; color: var(--ink);">
@@ -1185,11 +1882,16 @@ function renderResultCard(record, shouldScroll = true) {
             ${iconSvg}
           </div>
           <div>
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <h4 style="font-weight: 700; font-size: 13.5px; color: var(--ink); margin: 0;">${title}</h4>
               <span style="font-size: 9.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; padding: 2px 7px; border-radius: 99px; text-transform: uppercase; ${badgeStyle}">
                 CÓDIGO ${record.code}
               </span>
+              ${canSendToSheet ? `
+              <span id="sheetSyncStatusBadge" style="display: inline-flex; align-items: center; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(59, 130, 246, 0.12); color: #60A5FA; border: 1px solid rgba(59, 130, 246, 0.3);">
+                ${syncText}
+              </span>
+              ` : ''}
             </div>
             <p style="margin: 4px 0 0; font-size: 12px; line-height: 1.4; color: var(--soft);">
               ${record.message || (isSuccess ? 'El movimiento bancario coincide perfectamente.' : 'Verifica los datos ingresados.')}
@@ -1230,6 +1932,9 @@ function renderResultCard(record, shouldScroll = true) {
       </div>
     </div>
   `;
+  if (canSendToSheet && record.sheetSyncType) {
+    updateSheetSyncBadgeUI(record.sheetSyncType, record.sheetSyncText);
+  }
   container.style.display = 'block';
   if (shouldScroll) {
     setTimeout(() => {
@@ -1677,6 +2382,7 @@ window.pasteToBdvForm = async () => {
 
 window.handleBdvSubmit = async (e) => {
   e.preventDefault();
+  if (!validateVpMetaFields()) return;
   const hiddenBankInput = document.getElementById('bdvBancoOrigen');
   const searchBankInput = document.getElementById('bdvBancoSearchInput');
   let bancoOrigen = hiddenBankInput ? hiddenBankInput.value : '';
@@ -1754,8 +2460,16 @@ window.handleBdvSubmit = async (e) => {
     };
 
     renderResultCard(currentResult);
-    if (isVerified) toast('✓ Pago BDV verificado con éxito');
-    else toast('Pago BDV no encontrado o no conciliado');
+    if (isVerified || isPaymentValidForSheet(currentResult)) {
+      toast(
+        isVerified
+          ? '✓ Pago BDV verificado y enviado a Google Sheets'
+          : '✓ Movimiento ya conciliado enviado a Google Sheets'
+      );
+      sendVerifiedPaymentToSheet(currentResult);
+    } else {
+      toast('Pago BDV no encontrado o no conciliado');
+    }
 
   } catch (err) {
     console.error('Error BDV:', err);
@@ -2146,7 +2860,8 @@ function handleOrderPaidSuccess(queryData) {
     rawResponse: queryData,
   };
   renderResultCard(currentResult);
-  toast('✓ ¡Pago de Binance Pay Confirmado!');
+  sendVerifiedPaymentToSheet(currentResult);
+  toast('✓ ¡Pago de Binance Pay Confirmado y enviado a Google Sheets!');
 }
 
 window.copyOrderCheckoutLink = () => {
@@ -2266,6 +2981,7 @@ window.pasteToBinanceForm = async () => {
 
 window.handleBinanceManualSubmit = async (e) => {
   e.preventDefault();
+  if (!validateVpMetaFields()) return;
   const fechaPago = document.getElementById('manualBinanceFecha').value;
   const importeManual = document.getElementById('manualBinanceImporte').value;
   const last4 = document.getElementById('manualBinanceLast4').value.trim().toUpperCase();
@@ -2383,7 +3099,8 @@ window.handleBinanceManualSubmit = async (e) => {
 
     renderResultCard(currentResult);
     if (isVerified) {
-      toast('✓ Pago Binance verificado con éxito');
+      toast('✓ Pago Binance verificado y enviado a Google Sheets');
+      sendVerifiedPaymentToSheet(currentResult);
     } else {
       toast('Pago Binance no encontrado');
     }
@@ -2878,3 +3595,419 @@ window.applyPaymentToPOS = () => {
     toast(`Pago verificado (${currentResult.reference}) aplicado a la factura.`);
   }
 };
+
+// ============================================================
+// CONTROLADOR DE VISTA DE REPORTE DE TRANSFERENCIAS GUARDADAS
+// ============================================================
+
+let activeMainPaymentMode = 'pagos'; // 'pagos' | 'reporte'
+let cachedReporteTransactions = [];
+let currentRenderedReporteTransactions = [];
+let reportePaginationState = {
+  limit: 100,
+  offset: 0,
+  total: 0,
+  hayMas: false,
+  ignoreMetaFilters: false
+};
+let usuarioFilterDebounceTimer = null;
+
+function renderReporteFilterBadges(ignoreMeta = false) {
+  const container = document.getElementById('reporteActiveFilterBadges');
+  if (!container) return;
+
+  if (ignoreMeta) {
+    container.innerHTML = `
+      <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(0, 255, 0, 0.12); border: 1px solid rgba(0, 255, 0, 0.3); color: #00FF00; font-weight: 700; font-size: 10.5px;">
+        Todas las transferencias (sin filtro de cabecera)
+      </span>
+    `;
+    return;
+  }
+
+  const caja = getCajaForSheet();
+  const turno = getTurnoForSheet();
+  const usuario = getUsuarioForSheet();
+  const sede = getActiveSedeForSheet();
+  const fechaEl = document.getElementById('reporteFilterFecha');
+  const fecha = fechaEl ? fechaEl.value.trim() : '';
+
+  const badges = [];
+  if (caja) badges.push({ label: 'Caja', val: caja });
+  if (turno) badges.push({ label: 'Turno', val: turno });
+  if (usuario) badges.push({ label: 'Usuario', val: usuario });
+  if (sede) badges.push({ label: 'Sede', val: sede });
+  if (fecha) badges.push({ label: 'Fecha', val: fecha });
+
+  if (badges.length === 0) {
+    container.innerHTML = `<span style="color: var(--soft); font-weight: 600;">Todos los registros</span>`;
+    return;
+  }
+
+  container.innerHTML = badges
+    .map(
+      b => `
+      <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.07); border: 1px solid var(--hair); color: var(--ink); font-size: 10.5px;">
+        <strong style="color: var(--muted); font-weight: 600;">${b.label}:</strong>
+        <span style="font-weight: 700; color: #00FF00;">${b.val}</span>
+      </span>
+    `
+    )
+    .join('');
+}
+
+window.setPaymentMainMode = (mode) => {
+  activeMainPaymentMode = mode === 'reporte' ? 'reporte' : 'pagos';
+  const paymentCard = document.getElementById('paymentMainCard');
+  const reporteCard = document.getElementById('reporteMainCard');
+  const titleEl = document.getElementById('vpHeaderTitleText');
+
+  if (activeMainPaymentMode === 'reporte') {
+    if (paymentCard) paymentCard.style.display = 'none';
+    if (reporteCard) reporteCard.style.display = 'flex';
+    if (titleEl) titleEl.textContent = 'Reporte de Transferencias';
+    renderReporteFilterBadges(false);
+    window.solicitarReporteTransferencias(0, false);
+  } else {
+    if (reporteCard) reporteCard.style.display = 'none';
+    if (paymentCard) paymentCard.style.display = 'block';
+    if (titleEl) titleEl.textContent = 'Verificación de Pagos';
+  }
+};
+
+window.onMetaPillFilterUpdated = () => {
+  saveHeaderMetaToCache();
+  if (activeMainPaymentMode === 'reporte') {
+    renderReporteFilterBadges(false);
+    window.solicitarReporteTransferencias(0, false);
+  }
+};
+
+window.onMetaUsuarioInput = () => {
+  saveHeaderMetaToCache();
+  if (activeMainPaymentMode !== 'reporte') return;
+  renderReporteFilterBadges(false);
+  if (usuarioFilterDebounceTimer) clearTimeout(usuarioFilterDebounceTimer);
+  usuarioFilterDebounceTimer = setTimeout(() => {
+    window.solicitarReporteTransferencias(0, false);
+  }, 450);
+};
+
+function formatReporteFechaHora(raw) {
+  if (!raw) return '-';
+  const str = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const fecha = d.toLocaleDateString('es-VE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+    const hora = d.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+    return `${fecha} · ${hora}`;
+  }
+  return str;
+}
+
+function updateReporteKpis(list, totalCount) {
+  const countEl = document.getElementById('reporteKpiTotalCount');
+  const bsEl = document.getElementById('reporteKpiTotalBs');
+  const usdtEl = document.getElementById('reporteKpiTotalUsdt');
+
+  let sumBs = 0;
+  let sumUsdt = 0;
+
+  (list || []).forEach(item => {
+    const monto = parseFloat(item.monto_bs) || 0;
+    const isBinance =
+      String(item.banco_receptor || '').toLowerCase().includes('binance') ||
+      String(item.banco_emisor || '').toLowerCase().includes('binance');
+    if (isBinance) {
+      sumUsdt += monto;
+    } else {
+      sumBs += monto;
+    }
+  });
+
+  if (countEl) countEl.textContent = String(typeof totalCount === 'number' ? totalCount : (list || []).length);
+  if (bsEl) bsEl.textContent = `Bs. ${formatAmountNumber(sumBs) || '0,00'}`;
+  if (usdtEl) usdtEl.textContent = `$${formatAmountNumber(sumUsdt) || '0,00'}`;
+}
+
+window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = false) => {
+  const listContainer = document.getElementById('reporteTransfersListContainer');
+  const btn = document.getElementById('btnSolicitarReporte');
+  const lblBtn = document.getElementById('lblBtnSolicitarReporte');
+  const icRefresh = document.getElementById('icReporteRefresh');
+  const paginationBar = document.getElementById('reportePaginationBar');
+
+  reportePaginationState.offset = Math.max(0, Number(offset) || 0);
+  reportePaginationState.ignoreMetaFilters = Boolean(ignoreMetaFilters);
+
+  renderReporteFilterBadges(reportePaginationState.ignoreMetaFilters);
+
+  const fechaEl = document.getElementById('reporteFilterFecha');
+  const fechaVal = fechaEl ? fechaEl.value.trim() : '';
+  const bancoRecEl = document.getElementById('reporteFilterBancoReceptor');
+  const bancoRecVal = bancoRecEl ? bancoRecEl.value.trim() : '';
+  const empresaEl = document.getElementById('reporteFilterEmpresa');
+  const empresaVal = empresaEl ? empresaEl.value.trim() : '';
+
+  const filtros = {
+    limit: reportePaginationState.limit,
+    offset: reportePaginationState.offset
+  };
+
+  if (fechaVal) filtros.fecha = fechaVal;
+  if (bancoRecVal) filtros.banco_receptor = bancoRecVal;
+  if (empresaVal) filtros.empresa = empresaVal;
+
+  if (!reportePaginationState.ignoreMetaFilters) {
+    const caja = getCajaForSheet();
+    const turno = getTurnoForSheet();
+    const usuario = getUsuarioForSheet();
+    const sede = getActiveSedeForSheet();
+
+    if (caja) filtros.caja = caja;
+    if (turno) filtros.turno = turno;
+    if (usuario) filtros.usuario = usuario;
+    if (sede) filtros.sede = sede;
+  }
+
+  if (btn) btn.disabled = true;
+  if (lblBtn) lblBtn.textContent = 'Consultando...';
+  if (icRefresh) icRefresh.style.animation = 'spin 1s linear infinite';
+
+  if (listContainer) {
+    listContainer.innerHTML = `
+      <div style="padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 12px;">
+        Cargando transferencias guardadas desde Google Sheets...
+      </div>
+    `;
+  }
+
+  try {
+    const resultado = await obtenerTransferencias(filtros);
+    cachedReporteTransactions = resultado.transacciones || [];
+    reportePaginationState.total = resultado.total || 0;
+    reportePaginationState.hayMas = Boolean(resultado.hayMas);
+
+    const searchInput = document.getElementById('reporteFilterSearch');
+    const localQuery = searchInput ? searchInput.value.trim() : '';
+
+    if (localQuery) {
+      window.filtrarListaReporteLocal(localQuery);
+    } else {
+      window.renderReporteTransfersList(cachedReporteTransactions, reportePaginationState.total);
+    }
+
+    if (paginationBar) {
+      if (reportePaginationState.total > 0) {
+        paginationBar.style.display = 'flex';
+        const infoEl = document.getElementById('reportePaginationInfo');
+        const prevBtn = document.getElementById('btnReportePrevPage');
+        const nextBtn = document.getElementById('btnReporteNextPage');
+        const startIdx = reportePaginationState.offset + 1;
+        const endIdx = reportePaginationState.offset + cachedReporteTransactions.length;
+        if (infoEl) {
+          infoEl.textContent = `Mostrando ${startIdx}-${endIdx} de ${reportePaginationState.total}`;
+        }
+        if (prevBtn) {
+          prevBtn.disabled = reportePaginationState.offset <= 0;
+          prevBtn.style.opacity = reportePaginationState.offset <= 0 ? '0.4' : '1';
+        }
+        if (nextBtn) {
+          nextBtn.disabled = !reportePaginationState.hayMas;
+          nextBtn.style.opacity = !reportePaginationState.hayMas ? '0.4' : '1';
+        }
+      } else {
+        paginationBar.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.warn('[Aviso en solicitarReporteTransferencias]:', err);
+    if (listContainer) {
+      listContainer.innerHTML = `
+        <div style="padding: 22px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px dashed var(--hair); border-radius: 12px;">
+          <p style="margin: 0 0 6px; font-weight: 700; color: var(--ink);">No se encontraron transferencias disponibles</p>
+          <span style="font-size: 11.5px; color: var(--muted); display: block; margin-bottom: 10px;">Verifica los filtros seleccionados o intenta nuevamente.</span>
+          <button type="button" onclick="window.solicitarReporteTransferencias(0, ${reportePaginationState.ignoreMetaFilters})" style="padding: 7px 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 8px; color: var(--ink); font-size: 11.5px; font-weight: 600; cursor: pointer;">Reintentar</button>
+        </div>
+      `;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+    if (lblBtn) lblBtn.textContent = 'Solicitar Reporte';
+    if (icRefresh) icRefresh.style.animation = 'none';
+  }
+};
+
+window.cambiarPaginaReporte = (direction) => {
+  const newOffset = reportePaginationState.offset + direction * reportePaginationState.limit;
+  if (newOffset < 0) return;
+  window.solicitarReporteTransferencias(newOffset, reportePaginationState.ignoreMetaFilters);
+};
+
+window.filtrarListaReporteLocal = (query) => {
+  const q = String(query || '').toLowerCase().trim();
+  if (!q) {
+    window.renderReporteTransfersList(cachedReporteTransactions, reportePaginationState.total);
+    return;
+  }
+
+  const filtered = cachedReporteTransactions.filter(item => {
+    const ref = String(item.referencia || '').toLowerCase();
+    const tel = String(item.telefono_cliente || '').toLowerCase();
+    const bancoE = String(item.banco_emisor || '').toLowerCase();
+    const bancoR = String(item.banco_receptor || '').toLowerCase();
+    const usr = String(item.usuario || '').toLowerCase();
+    const caja = String(item.caja || '').toLowerCase();
+    const sede = String(item.sede || '').toLowerCase();
+    const monto = String(item.monto_bs || '').toLowerCase();
+
+    return (
+      ref.includes(q) ||
+      tel.includes(q) ||
+      bancoE.includes(q) ||
+      bancoR.includes(q) ||
+      usr.includes(q) ||
+      caja.includes(q) ||
+      sede.includes(q) ||
+      monto.includes(q)
+    );
+  });
+
+  window.renderReporteTransfersList(filtered, filtered.length);
+};
+
+window.renderReporteTransfersList = (list, totalCount) => {
+  const container = document.getElementById('reporteTransfersListContainer');
+  if (!container) return;
+
+  currentRenderedReporteTransactions = list || [];
+  updateReporteKpis(currentRenderedReporteTransactions, totalCount);
+
+  if (!currentRenderedReporteTransactions || currentRenderedReporteTransactions.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 26px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px dashed var(--hair); border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <span>No se encontraron transferencias para los filtros seleccionados.</span>
+        ${
+          !reportePaginationState.ignoreMetaFilters
+            ? `<button type="button" onclick="window.solicitarReporteTransferencias(0, true)" style="padding: 6px 12px; border-radius: 8px; background: rgba(0,255,0,0.12); border: 1px solid rgba(0,255,0,0.3); color: #00FF00; font-size: 11.5px; font-weight: 700; cursor: pointer;">Ver todas las transferencias sin filtros</button>`
+            : ''
+        }
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  currentRenderedReporteTransactions.forEach((item, idx) => {
+    const montoNum = parseFloat(item.monto_bs) || 0;
+    const isBinance =
+      String(item.banco_receptor || '').toLowerCase().includes('binance') ||
+      String(item.banco_emisor || '').toLowerCase().includes('binance');
+    const montoDisplay = isBinance
+      ? `$${formatAmountNumber(montoNum)} USDT`
+      : `Bs. ${formatAmountNumber(montoNum)}`;
+    const montoColor = isBinance ? '#FACC15' : '#00FF00';
+
+    const bancoEmisor = item.banco_emisor || 'Banco no especificado';
+    const telefonoCliente = item.telefono_cliente || 'Sin teléfono';
+    const referencia = item.referencia || '-';
+    const fechaHora = formatReporteFechaHora(item.fecha_hora);
+    const caja = item.caja || '-';
+    const turno = item.turno_entrada || item.turno || '-';
+    const usuario = item.usuario || '-';
+    const sede = item.sede || '-';
+    const empresa = item.empresa || '';
+
+    html += `
+      <div
+        onclick="window.openReporteItemReceipt(${idx})"
+        style="display: flex; flex-direction: column; gap: 8px; padding: 11px 13px; background: var(--fill); border: 1px solid var(--hair); border-radius: 12px; cursor: pointer; transition: border-color 0.15s ease;"
+        onmouseenter="this.style.borderColor='rgba(0,255,0,0.4)'"
+        onmouseleave="this.style.borderColor='var(--hair)'"
+        title="Toca para ver el comprobante"
+      >
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+          <div style="min-width: 0; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="font-size: 13px; font-weight: 700; color: var(--ink);">${bancoEmisor}</span>
+              <span style="font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #38BDF8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); padding: 1px 7px; border-radius: 6px;">
+                Ref: ${referencia}
+              </span>
+            </div>
+            <div style="font-size: 11.5px; color: var(--soft); margin-top: 3px; font-family: 'JetBrains Mono', monospace;">
+              Cliente / Tel: <strong>${telefonoCliente}</strong>
+              ${empresa ? `<span style="color: var(--muted);"> · ${empresa}</span>` : ''}
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0;">
+            <span style="font-size: 14px; font-weight: 800; color: ${montoColor}; font-family: 'JetBrains Mono', monospace;">
+              ${montoDisplay}
+            </span>
+            <span style="font-size: 10.5px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px;">
+              ${fechaHora}
+            </span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding-top: 6px; border-top: 1px solid var(--hair); font-size: 10.5px; color: var(--muted);">
+          <span style="background: rgba(255,255,255,0.04); border: 1px solid var(--hair); border-radius: 999px; padding: 1px 8px;">Caja: <strong style="color: var(--ink);">${caja}</strong></span>
+          <span style="background: rgba(255,255,255,0.04); border: 1px solid var(--hair); border-radius: 999px; padding: 1px 8px;">Turno: <strong style="color: var(--ink);">${turno}</strong></span>
+          <span style="background: rgba(255,255,255,0.04); border: 1px solid var(--hair); border-radius: 999px; padding: 1px 8px;">Usuario: <strong style="color: var(--ink);">${usuario}</strong></span>
+          <span style="background: rgba(255,255,255,0.04); border: 1px solid var(--hair); border-radius: 999px; padding: 1px 8px;">Sede: <strong style="color: var(--ink);">${sede}</strong></span>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+};
+
+window.openReporteItemReceipt = (idx) => {
+  const item = currentRenderedReporteTransactions[idx];
+  if (!item) return;
+
+  const isBinance =
+    String(item.banco_receptor || '').toLowerCase().includes('binance') ||
+    String(item.banco_emisor || '').toLowerCase().includes('binance');
+  const montoNum = parseFloat(item.monto_bs) || 0;
+
+  const record = {
+    id: 'rep_' + idx + '_' + Date.now(),
+    timestamp: item.fecha_hora || new Date().toISOString(),
+    channel: isBinance ? 'binance' : 'bdv',
+    status: 'verified',
+    code: 1000,
+    message: '✓ Transferencia registrada en Google Sheets',
+    amount: montoNum.toFixed(2),
+    currency: isBinance ? 'USDT' : 'VES',
+    reference: String(item.referencia || '-'),
+    paymentDate: formatReporteFechaHora(item.fecha_hora),
+    payerDoc: String(item.telefono_cliente || ''),
+    payerName: `${item.caja || ''} · ${item.usuario || ''} · ${item.sede || ''}`,
+    bankName: String(item.banco_emisor || ''),
+    merchantName: String(item.empresa || item.banco_receptor || '')
+  };
+
+  selectedReceipt = record;
+  currentResult = record;
+  if (isBinance) {
+    binanceResult = record;
+  } else {
+    const key = DEFAULT_MERCHANT_CONFIG.bdvAccountKey || 'tucombox';
+    bdvResultsByAccount[key] = record;
+  }
+  window.openDigitalReceipt();
+};
+

@@ -124,7 +124,7 @@ export default function App() {
   const [isGeocodingLoading, setIsGeocodingLoading] = useState(false);
 
   // 6. UI & Modals State
-  const [activeView, setActiveView] = useState<'delivery' | 'pagos'>('delivery');
+  const [activeView, setActiveView] = useState<'delivery' | 'pagos' | 'reporte'>('pagos');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSendingToSheet, setIsSendingToSheet] = useState(false);
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
@@ -1113,13 +1113,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Payment Verification View */}
-      {activeView === 'pagos' && (
-        <PaymentVerification onClose={() => setActiveView('delivery')} />
+      {/* Payment Verification & Transfers Report View */}
+      {(activeView === 'pagos' || activeView === 'reporte') && (
+        <PaymentVerification
+          activeView={activeView}
+          onViewChange={setActiveView}
+        />
       )}
 
       {/* Initial Sede Selection Modal */}
-      {showInitialSedePrompt && (
+      {showInitialSedePrompt && activeView === 'delivery' && (
         <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/95 p-4">
           <div className="bg-[#111318] border border-white/15 rounded-3xl max-w-sm w-full p-6 shadow-2xl flex flex-col gap-6 text-center animate-in zoom-in-95 duration-200">
             <div>
