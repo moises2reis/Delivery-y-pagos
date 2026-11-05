@@ -1,12 +1,11 @@
 import { Sede } from '../types';
 
-// URL oficial de Google Apps Script para consulta de Sedes (GET)
-export const REAL_SEDES_API_URL =
-  'https://script.google.com/macros/s/AKfycbw3G94u3EZR6kyOKKn-7RgIVJROgkKYvG95dw3l7yfVqpIiqW8Wj5k4NsY-_ltEPPzDNg/exec';
-
-// Webhook oficial de Google Apps Script para registrar Deliveries (POST)
+// Webhook oficial de Google Apps Script para registrar Deliveries y consultar Sedes (GET/POST)
 export const DEFAULT_WEBHOOK_URL =
   'https://script.google.com/macros/s/AKfycbzwgIjTN5FePgS04iaqdwRPB-ZKQgpvo_F1_xAtYY2yIM6DSHKWgryYqiplkIEJ4LUVwA/exec';
+
+// URL oficial de Google Apps Script para consulta de Sedes (GET)
+export const REAL_SEDES_API_URL = `${DEFAULT_WEBHOOK_URL}?accion=sedes`;
 
 export const REAL_API_URL = DEFAULT_WEBHOOK_URL;
 

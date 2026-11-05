@@ -78,16 +78,16 @@ const VP_HEADER_CACHE_KEY = 'pos_vp_header_meta_v1';
 function getCachedHeaderMeta() {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(VP_HEADER_CACHE_KEY) : null;
-    if (!raw) return { caja: '', turno: '10:00', usuario: '', sede: '' };
+    if (!raw) return { caja: '', turno: '', usuario: '', sede: '' };
     const parsed = JSON.parse(raw);
     return {
       caja: typeof parsed?.caja === 'string' ? parsed.caja : '',
-      turno: typeof parsed?.turno === 'string' && parsed.turno ? parsed.turno : '10:00',
+      turno: typeof parsed?.turno === 'string' ? parsed.turno : '',
       usuario: typeof parsed?.usuario === 'string' ? parsed.usuario : '',
       sede: typeof parsed?.sede === 'string' ? parsed.sede : ''
     };
   } catch (_) {
-    return { caja: '', turno: '10:00', usuario: '', sede: '' };
+    return { caja: '', turno: '', usuario: '', sede: '' };
   }
 }
 
@@ -102,7 +102,7 @@ export function saveHeaderMetaToCache() {
 
     const next = {
       caja: cajaEl ? cajaEl.value.trim() : prev.caja,
-      turno: turnoEl ? (turnoEl.value.trim() || '10:00') : prev.turno,
+      turno: turnoEl ? turnoEl.value.trim() : prev.turno,
       usuario: usuarioEl ? usuarioEl.value.trim() : prev.usuario,
       sede: sedeEl ? sedeEl.value.trim() : prev.sede
     };
@@ -122,11 +122,14 @@ export function restoreHeaderMetaFromCache() {
     cajaEl.value = cached.caja;
   }
   if (turnoEl) {
-    turnoEl.value = cached.turno || '10:00';
+    turnoEl.value = cached.turno || '';
+    const clearBtn = document.getElementById('btnClearTurnoBtn');
     if (turnoEl.value) {
       turnoEl.classList.add('has-time-val');
+      if (clearBtn) clearBtn.style.display = 'inline-flex';
     } else {
       turnoEl.classList.remove('has-time-val');
+      if (clearBtn) clearBtn.style.display = 'none';
     }
   }
   if (usuarioEl && cached.usuario) {
@@ -151,7 +154,7 @@ function getCajaForSheet() {
 
 function getTurnoForSheet() {
   const input = typeof document !== 'undefined' ? document.getElementById('vpMetaTurnoEntrada') : null;
-  const raw = (input && input.value.trim()) ? input.value.trim() : (getCachedHeaderMeta().turno || '');
+  const raw = input ? input.value.trim() : (getCachedHeaderMeta().turno || '');
   if (!raw) return '';
   // Convertir HH:MM de input type="time" a formato 12h (ej: 10:00am, 2:30pm)
   const match = raw.match(/^(\d{1,2}):(\d{2})$/);
@@ -255,8 +258,33 @@ function filterTransfersClientSide(list, filtros = {}) {
   let result = Array.isArray(list) ? [...list] : [];
 
   if (filtros.fecha && String(filtros.fecha).trim() !== '') {
-    const fQuery = String(filtros.fecha).trim();
-    result = result.filter(item => String(item.fecha_hora || '').slice(0, 10) === fQuery);
+    const fQuery = String(filtros.fecha).trim(); // Formato esperado YYYY-MM-DD
+    result = result.filter(item => {
+      const raw = String(item.fecha_hora || '').trim();
+      if (!raw) return false;
+      // 1. Si coincide directamente con YYYY-MM-DD
+      if (raw.slice(0, 10) === fQuery) return true;
+      // 2. Si viene como DD/MM/YYYY o DD-MM-YYYY
+      const parts = raw.split(/[\sT,]/)[0].split(/[\/\-]/);
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          const dmy = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+          if (dmy === fQuery) return true;
+        } else if (parts[0].length === 4) {
+          const ymd = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+          if (ymd === fQuery) return true;
+        }
+      }
+      // 3. Fallback con objeto Date
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}` === fQuery;
+      }
+      return false;
+    });
   }
   if (filtros.caja && String(filtros.caja).trim() !== '') {
     const cQuery = String(filtros.caja).trim().toLowerCase();
@@ -305,16 +333,22 @@ function filterTransfersClientSide(list, filtros = {}) {
 
 function isPaymentValidForSheet(record) {
   if (!record) return false;
-  if (Number(record.code) === 1000) return true;
+  const codeNum = Number(record.code);
+  // Bloquear explícitamente error 1010 (pago no válido/rechazado)
+  if (codeNum === 1010) return false;
+  // Bloquear explícitamente error 3000 o cualquier mensaje de conciliado anteriormente
+  if (codeNum === 3000) return false;
   const msg = String(record.message || '').toLowerCase();
   if (
     msg.includes('conciliado anteriormente') ||
     msg.includes('ya fue conciliado') ||
-    (msg.includes('consulta realizada es exitosa') && msg.includes('conciliado'))
+    msg.includes('ya fue conciliada') ||
+    msg.includes('3000')
   ) {
-    return true;
+    return false;
   }
-  return false;
+  // Solo se envía a Google Sheet si el pago fue verificado con éxito (Código 1000)
+  return codeNum === 1000;
 }
 
 function updateSheetSyncBadgeUI(statusType, textMsg) {
@@ -557,15 +591,35 @@ if (typeof window !== 'undefined') {
   };
   window.handleTurnoNativeChange = (input) => {
     if (!input) return;
+    const clearBtn = document.getElementById('btnClearTurnoBtn');
     if (input.value) {
       input.classList.add('has-time-val');
+      if (clearBtn) clearBtn.style.display = 'inline-flex';
     } else {
       input.classList.remove('has-time-val');
+      if (clearBtn) clearBtn.style.display = 'none';
     }
     saveHeaderMetaToCache();
     if (window.clearMetaPillError) window.clearMetaPillError('pillMetaTurno');
     if (typeof window.onMetaPillFilterUpdated === 'function') {
       window.onMetaPillFilterUpdated();
+    }
+  };
+  window.clearTurnoInput = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const input = document.getElementById('vpMetaTurnoEntrada');
+    if (input) {
+      input.value = '';
+      input.classList.remove('has-time-val');
+      const clearBtn = document.getElementById('btnClearTurnoBtn');
+      if (clearBtn) clearBtn.style.display = 'none';
+      saveHeaderMetaToCache();
+      if (typeof window.onMetaPillFilterUpdated === 'function') {
+        window.onMetaPillFilterUpdated();
+      }
     }
   };
 }
@@ -834,10 +888,11 @@ export const verificarPagosViewHTML = `
           </select>
         </label>
 
-        <!-- Turno Entrada (Selector de hora y minutos AM/PM nativo del sistema, predeterminado 10:00 AM) -->
-        <label id="pillMetaTurno" onclick="window.openNativeTurnoPicker(event)" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: pointer; transition: 0.15s;">
-          <span style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;">Turno entrada:</span>
-          <input id="vpMetaTurnoEntrada" class="has-time-val" type="time" value="10:00" required oninput="window.handleTurnoNativeChange(this)" onchange="window.handleTurnoNativeChange(this)" style="border: none; background: transparent; color: #f4f4f5; font-size: 11.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; outline: none; padding: 0; margin: 0; cursor: pointer; color-scheme: dark;" />
+        <!-- Turno Entrada (Selector de hora y minutos AM/PM nativo del sistema, borrable) -->
+        <label id="pillMetaTurno" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: pointer; transition: 0.15s; position: relative;">
+          <span onclick="window.openNativeTurnoPicker(event)" style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; cursor: pointer;">Turno entrada:</span>
+          <input id="vpMetaTurnoEntrada" type="time" value="" oninput="window.handleTurnoNativeChange(this)" onchange="window.handleTurnoNativeChange(this)" onkeydown="if(event.key === 'Backspace' || event.key === 'Delete'){ window.clearTurnoInput(event); }" style="border: none; background: transparent; color: #f4f4f5; font-size: 11.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; outline: none; padding: 0; margin: 0; cursor: pointer; color-scheme: dark;" />
+          <button type="button" id="btnClearTurnoBtn" onclick="window.clearTurnoInput(event)" title="Borrar hora" style="display: none; align-items: center; justify-content: center; background: transparent; border: none; padding: 0 0 0 2px; margin: 0; font-size: 11px; color: var(--muted); cursor: pointer; line-height: 1;">✕</button>
         </label>
 
         <!-- Usuario -->
@@ -2460,15 +2515,18 @@ window.handleBdvSubmit = async (e) => {
     };
 
     renderResultCard(currentResult);
-    if (isVerified || isPaymentValidForSheet(currentResult)) {
-      toast(
-        isVerified
-          ? '✓ Pago BDV verificado y enviado a Google Sheets'
-          : '✓ Movimiento ya conciliado enviado a Google Sheets'
-      );
+    if (isPaymentValidForSheet(currentResult)) {
+      toast('✓ Pago BDV verificado y enviado a Google Sheets');
       sendVerifiedPaymentToSheet(currentResult);
     } else {
-      toast('Pago BDV no encontrado o no conciliado');
+      const msg = String(currentResult.message || '').toLowerCase();
+      if (currentResult.code === 3000 || msg.includes('conciliado') || msg.includes('ya fue conciliad')) {
+        toast('⚠️ Movimiento ya conciliado anteriormente (no se reenvía a Google Sheet)');
+      } else if (isRejected || currentResult.code === 1010) {
+        toast('Pago BDV no válido o no conciliado');
+      } else {
+        toast(currentResult.message || 'Pago BDV no conciliado');
+      }
     }
 
   } catch (err) {
@@ -3696,9 +3754,15 @@ window.onMetaUsuarioInput = () => {
 function formatReporteFechaHora(raw) {
   if (!raw) return '-';
   const str = String(raw).trim();
+  // 1. Si ya viene formateado al estilo venezolano (DD/MM/YYYY hh:mm:ss am/pm)
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(str)) {
+    return str;
+  }
+  // 2. Si viene solo la fecha YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     return str;
   }
+  // 3. Si viene en formato ISO o fecha estándar
   const d = new Date(str);
   if (!isNaN(d.getTime())) {
     const fecha = d.toLocaleDateString('es-VE', {
