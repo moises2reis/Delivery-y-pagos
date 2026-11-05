@@ -1,10 +1,10 @@
 import { Sede } from '../types';
 
-// Webhook oficial de Google Apps Script para registrar Deliveries y consultar Sedes (GET/POST)
+// Webhook oficial único de Google Apps Script (Conciliación de pagos, Sedes y Deliveries)
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzwgIjTN5FePgS04iaqdwRPB-ZKQgpvo_F1_xAtYY2yIM6DSHKWgryYqiplkIEJ4LUVwA/exec';
+  'https://script.google.com/macros/s/AKfycbzc2H9UsKIo9P9u4wspPFHKzAWEEoshXt-C2msC6dIQd_p1cq8Zf4gRklEeSZMhs24_Tw/exec';
 
-// URL oficial de Google Apps Script para consulta de Sedes (GET)
+// URL para consulta de Sedes mediante parámetro accion=sedes
 export const REAL_SEDES_API_URL = `${DEFAULT_WEBHOOK_URL}?accion=sedes`;
 
 export const REAL_API_URL = DEFAULT_WEBHOOK_URL;
