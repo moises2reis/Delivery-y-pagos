@@ -83,7 +83,13 @@ export default function App() {
   const [settings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          webhookUrl: DEFAULT_WEBHOOK_URL, // Siempre usar la URL unificada oficial
+        };
+      }
     } catch {}
     return {
       webhookUrl: DEFAULT_WEBHOOK_URL,

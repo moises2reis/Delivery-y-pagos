@@ -223,8 +223,15 @@ function saveTransferLocally(payload) {
   try {
     if (typeof localStorage === 'undefined' || !payload) return;
     const current = getLocalSavedTransfers();
-    current.unshift(payload);
-    localStorage.setItem(LOCAL_TRANSFERS_STORAGE_KEY, JSON.stringify(current.slice(0, 1000)));
+    const exists = current.some(
+      (t) =>
+        String(t.referencia || '').trim() === String(payload.referencia || '').trim() &&
+        Number(t.monto_bs) === Number(payload.monto_bs)
+    );
+    if (!exists) {
+      current.unshift(payload);
+      localStorage.setItem(LOCAL_TRANSFERS_STORAGE_KEY, JSON.stringify(current.slice(0, 1000)));
+    }
   } catch (_) {}
 }
 
@@ -331,12 +338,17 @@ function filterTransfersClientSide(list, filtros = {}) {
   return result;
 }
 
-function isPaymentValidForSheet(record) {
+function isPaymentValidForSheet(record, force = false) {
   if (!record) return false;
   const codeNum = Number(record.code);
+  // Si se fuerza manualmente con el botón "Guardar de nuevo a sheets", permitimos
+  // pagos validados (1000, 3000 o mensaje 'conciliado'). Solo bloqueamos 1010 o 9999.
+  if (force) {
+    return codeNum !== 1010 && codeNum !== 9999;
+  }
   // Bloquear explícitamente error 1010 (pago no válido/rechazado)
   if (codeNum === 1010) return false;
-  // Bloquear explícitamente error 3000 o cualquier mensaje de conciliado anteriormente
+  // Bloquear explícitamente error 3000 o cualquier mensaje de conciliado anteriormente en envío automático
   if (codeNum === 3000) return false;
   const msg = String(record.message || '').toLowerCase();
   if (
@@ -347,7 +359,7 @@ function isPaymentValidForSheet(record) {
   ) {
     return false;
   }
-  // Solo se envía a Google Sheet si el pago fue verificado con éxito (Código 1000)
+  // Solo se envía a Google Sheet automáticamente si el pago fue verificado con éxito (Código 1000)
   return codeNum === 1000;
 }
 
@@ -379,8 +391,8 @@ function updateSheetSyncBadgeUI(statusType, textMsg) {
 }
 
 // ENVIAR PAGO VERIFICADO A GOOGLE SHEETS (doPost)
-export async function sendVerifiedPaymentToSheet(record) {
-  if (!isPaymentValidForSheet(record)) return null;
+export async function sendVerifiedPaymentToSheet(record, force = false) {
+  if (!isPaymentValidForSheet(record, force)) return null;
   const isBdv = record.channel === 'bdv';
   const telefonoCliente = String(
     record.payerPhone || record.payerName || record.payerDoc || (isBdv ? 'Sin teléfono' : 'Usuario Binance')
@@ -459,6 +471,65 @@ export async function sendVerifiedPaymentToSheet(record) {
     record.sheetSyncText = '⚠️ Guardado en Reporte local';
     updateSheetSyncBadgeUI('error', record.sheetSyncText);
     return null;
+  }
+}
+
+// GUARDA MANUALMENTE EL PAGO VERIFICADO/VALIDADO A SHEETS
+export async function guardarDeNuevoASheets() {
+  const record = getCurrentResult();
+  if (!record) {
+    toast('No hay ningún pago activo para guardar');
+    return;
+  }
+
+  // Comprobar campos de cabecera obligatorios
+  if (!validateVpMetaFields()) {
+    return;
+  }
+
+  const btnCard = document.getElementById('btnResendToSheetResultCard');
+  const lblCard = document.getElementById('lblResendToSheet');
+  const btnModal = document.getElementById('btnResendReceiptModal');
+  const lblModal = document.getElementById('lblResendReceiptModal');
+
+  const setButtonsLoading = (loading) => {
+    if (btnCard) btnCard.disabled = loading;
+    if (btnModal) btnModal.disabled = loading;
+    if (loading) {
+      if (lblCard) lblCard.textContent = 'Guardando en Sheets...';
+      if (lblModal) lblModal.textContent = 'Guardando en Sheets...';
+    }
+  };
+
+  setButtonsLoading(true);
+
+  try {
+    toast('⏳ Guardando pago en Google Sheets...');
+    const result = await sendVerifiedPaymentToSheet(record, true);
+
+    if (result && (result.status === 'success' || result.status === 'duplicate')) {
+      const isDup = result.status === 'duplicate';
+      if (lblCard) lblCard.textContent = isDup ? '✓ Ya en Sheets' : '✓ ¡Guardado en Sheets!';
+      if (lblModal) lblModal.textContent = isDup ? '✓ Ya en Sheets' : '✓ ¡Guardado en Sheets!';
+      setTimeout(() => {
+        if (lblCard) lblCard.textContent = 'Guardar de nuevo a Sheets';
+        if (lblModal) lblModal.textContent = 'Guardar de nuevo a Sheets';
+        if (btnCard) btnCard.disabled = false;
+        if (btnModal) btnModal.disabled = false;
+      }, 2500);
+    } else {
+      if (lblCard) lblCard.textContent = 'Reintentar Guardar';
+      if (lblModal) lblModal.textContent = 'Reintentar Guardar';
+      if (btnCard) btnCard.disabled = false;
+      if (btnModal) btnModal.disabled = false;
+    }
+  } catch (err) {
+    console.error('Error al guardar de nuevo en Sheets:', err);
+    toast('⚠️ Error al guardar en Google Sheets: ' + (err?.message || ''));
+    if (lblCard) lblCard.textContent = 'Reintentar Guardar';
+    if (lblModal) lblModal.textContent = 'Reintentar Guardar';
+    if (btnCard) btnCard.disabled = false;
+    if (btnModal) btnModal.disabled = false;
   }
 }
 
@@ -571,6 +642,7 @@ export async function consultarPagosSheet(filtros = {}) {
 
 if (typeof window !== 'undefined') {
   window.sendVerifiedPaymentToSheet = sendVerifiedPaymentToSheet;
+  window.guardarDeNuevoASheets = guardarDeNuevoASheets;
   window.consultarPagosSheet = consultarPagosSheet;
   window.obtenerTransferencias = obtenerTransferencias;
   window.clearMetaPillError = (pillId) => {
@@ -1520,7 +1592,11 @@ export const verificarPagosViewHTML = `
       </div>
 
       <!-- Botones del Modal -->
-      <div style="margin-top: 16px; display: flex;">
+      <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+        <button type="button" id="btnResendReceiptModal" onclick="window.guardarDeNuevoASheets()" style="width: 100%; padding: 10px 12px; background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 12px; font-weight: 700; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: 0.15s;" onmouseover="this.style.background='rgba(16, 185, 129, 0.25)'" onmouseout="this.style.background='rgba(16, 185, 129, 0.15)'">
+          <svg class="ic" viewBox="0 0 24 24" style="width: 15px; height: 15px; stroke: currentColor;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span id="lblResendReceiptModal">Guardar de nuevo a Sheets</span>
+        </button>
         <button type="button" onclick="window.copyReceiptText()" style="width: 100%; padding: 10px 12px; background: var(--fill); color: var(--ink); font-size: 12px; font-weight: 600; border-radius: 10px; border: 1px solid var(--hair); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: 0s;">
           <svg class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: var(--muted); fill: none;"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <span id="lblCopyReceipt">Copiar Texto</span>
@@ -1902,8 +1978,16 @@ function renderResultCard(record, shouldScroll = true) {
   const container = document.getElementById(containerId);
   if (!container || !record) return;
 
-  const isSuccess = record.code === 1000;
-  const isRejected = record.code === 1010;
+  const codeNum = Number(record.code);
+  const msgLower = String(record.message || '').toLowerCase();
+  const isSuccess = codeNum === 1000;
+  const isRejected = codeNum === 1010;
+  const isAlreadyValidated =
+    codeNum === 3000 ||
+    msgLower.includes('conciliado') ||
+    msgLower.includes('ya fue conciliad') ||
+    msgLower.includes('ya fue validado');
+  const isValidatedPayment = isSuccess || isAlreadyValidated;
 
   let bg = 'rgba(245, 158, 11, 0.08)';
   let border = 'rgba(245, 158, 11, 0.25)';
@@ -1917,6 +2001,12 @@ function renderResultCard(record, shouldScroll = true) {
     badgeStyle = 'background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3);';
     iconSvg = `<svg class="ic" viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: var(--green);"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
     title = 'Pago Verificado con Éxito';
+  } else if (isAlreadyValidated) {
+    bg = 'rgba(59, 130, 246, 0.08)';
+    border = 'rgba(59, 130, 246, 0.25)';
+    badgeStyle = 'background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.3);';
+    iconSvg = `<svg class="ic" viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #60A5FA;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+    title = 'Pago Ya Validado en BDV';
   } else if (isRejected) {
     bg = 'rgba(239, 68, 68, 0.08)';
     border = 'rgba(239, 68, 68, 0.25)';
@@ -1927,7 +2017,8 @@ function renderResultCard(record, shouldScroll = true) {
 
   const merchantLabel = record.merchantName || (record.channel === 'bdv' ? DEFAULT_MERCHANT_CONFIG.bdvAccountName : DEFAULT_MERCHANT_CONFIG.binanceAccountName);
   const canSendToSheet = isPaymentValidForSheet(record);
-  const syncText = record.sheetSyncText || (canSendToSheet ? '⏳ Enviando a Google Sheets...' : '');
+  const syncText = record.sheetSyncText || (canSendToSheet ? '⏳ Enviando a Google Sheets...' : (isAlreadyValidated ? 'Listo para guardar en Sheets' : ''));
+  const canShowResendBtn = (record.channel === 'bdv' && isValidatedPayment) || (record.channel === 'binance' && isSuccess);
 
   container.innerHTML = `
     <div style="border-radius: 14px; padding: 14px; background: ${bg}; border: 1px solid ${border}; color: var(--ink);">
@@ -1942,7 +2033,7 @@ function renderResultCard(record, shouldScroll = true) {
               <span style="font-size: 9.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; padding: 2px 7px; border-radius: 99px; text-transform: uppercase; ${badgeStyle}">
                 CÓDIGO ${record.code}
               </span>
-              ${canSendToSheet ? `
+              ${(canSendToSheet || isAlreadyValidated || record.sheetSyncText) ? `
               <span id="sheetSyncStatusBadge" style="display: inline-flex; align-items: center; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(59, 130, 246, 0.12); color: #60A5FA; border: 1px solid rgba(59, 130, 246, 0.3);">
                 ${syncText}
               </span>
@@ -1974,20 +2065,28 @@ function renderResultCard(record, shouldScroll = true) {
 
       <!-- Acciones de resultado -->
       <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hair); display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
-        ${isSuccess ? `
-        <button type="button" onclick="window.openDigitalReceipt()" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 14px; background: #059669; color: #FFFFFF; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(5,150,105,0.25); transition: 0s;">
+        ${isValidatedPayment ? `
+        <button type="button" onclick="window.openDigitalReceipt()" style="flex: 1; min-width: 125px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 12px; background: #059669; color: #FFFFFF; border-radius: 8px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(5,150,105,0.25); transition: 0.15s;">
           <svg class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           <span>Ver Comprobante</span>
         </button>
         ` : ''}
-        <button type="button" onclick="window.copySummaryRecord()" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 14px; background: var(--fill); color: var(--ink); border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--hair); cursor: pointer; transition: 0s;">
+
+        ${canShowResendBtn ? `
+        <button type="button" id="btnResendToSheetResultCard" onclick="window.guardarDeNuevoASheets()" style="flex: 1.2; min-width: 175px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s;" onmouseover="this.style.background='rgba(16, 185, 129, 0.25)'" onmouseout="this.style.background='rgba(16, 185, 129, 0.15)'">
+          <svg class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span id="lblResendToSheet">Guardar de nuevo a Sheets</span>
+        </button>
+        ` : ''}
+
+        <button type="button" onclick="window.copySummaryRecord()" style="flex: 1; min-width: 115px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 12px; background: var(--fill); color: var(--ink); border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid var(--hair); cursor: pointer; transition: 0.15s;">
           <svg class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <span id="lblCopySummaryText">Copiar Detalles</span>
         </button>
       </div>
     </div>
   `;
-  if (canSendToSheet && record.sheetSyncType) {
+  if ((canSendToSheet || isAlreadyValidated) && record.sheetSyncType) {
     updateSheetSyncBadgeUI(record.sheetSyncType, record.sheetSyncText);
   }
   container.style.display = 'block';
@@ -2520,8 +2619,8 @@ window.handleBdvSubmit = async (e) => {
       sendVerifiedPaymentToSheet(currentResult);
     } else {
       const msg = String(currentResult.message || '').toLowerCase();
-      if (currentResult.code === 3000 || msg.includes('conciliado') || msg.includes('ya fue conciliad')) {
-        toast('⚠️ Movimiento ya conciliado anteriormente (no se reenvía a Google Sheet)');
+      if (currentResult.code === 3000 || msg.includes('conciliado') || msg.includes('ya fue conciliad') || msg.includes('ya fue validado')) {
+        toast('ℹ️ Pago validado (ya conciliado en BDV). Usa "Guardar de nuevo a Sheets" para guardarlo.');
       } else if (isRejected || currentResult.code === 1010) {
         toast('Pago BDV no válido o no conciliado');
       } else {
@@ -3585,6 +3684,26 @@ window.openDigitalReceipt = () => {
     timestampEl.textContent = !isNaN(ts.getTime())
       ? ts.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
       : '-';
+  }
+
+  const resendBtn = document.getElementById('btnResendReceiptModal');
+  if (resendBtn) {
+    const isBdv = selectedReceipt.channel === 'bdv';
+    const codeNum = Number(selectedReceipt.code);
+    const msgLower = String(selectedReceipt.message || '').toLowerCase();
+    const isAlreadyVal =
+      codeNum === 3000 ||
+      msgLower.includes('conciliado') ||
+      msgLower.includes('ya fue conciliad') ||
+      msgLower.includes('ya fue validado');
+    const isSuccess = codeNum === 1000;
+    if ((isBdv && (isSuccess || isAlreadyVal)) || (!isBdv && isSuccess)) {
+      resendBtn.style.display = 'flex';
+      const lbl = document.getElementById('lblResendReceiptModal');
+      if (lbl) lbl.textContent = 'Guardar de nuevo a Sheets';
+    } else {
+      resendBtn.style.display = 'none';
+    }
   }
 
   if (overlay) overlay.style.display = 'flex';

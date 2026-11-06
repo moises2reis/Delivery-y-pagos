@@ -65,16 +65,22 @@ export async function enviarDeliveryASheet(
       ? `https://maps.google.com/?q=${lat},${lng}`
       : '';
 
+  const fechaCompleta =
+    record.fecha && record.hora
+      ? `${record.fecha} ${record.hora}`
+      : (record.fecha || '');
+
   // Payload comprensivo para ser compatible con cualquier script de Google Apps
   const payload = {
     action: 'nuevo_delivery',
     tipo: record.ubicacion.includes('[PICK-UP]') ? 'pickup' : 'delivery',
-    fecha: record.fecha,
-    hora: record.hora,
+    fecha: fechaCompleta,
+    fecha_hora: fechaCompleta,
+    hora: record.hora || '',
     cliente: record.nombre || 'Cliente Mostrador',
     nombre: record.nombre || 'Cliente Mostrador',
     nombre_cliente: record.nombre || 'Cliente Mostrador',
-    telefono: record.telefono || 'Sin teléfono',
+    telefono: record.telefono || '',
     tarifa: record.tarifa,
     monto: record.tarifa,
     distancia: record.distancia,
@@ -86,6 +92,7 @@ export async function enviarDeliveryASheet(
     zona: record.zona,
     direccion: record.zona,
     ubicacion: record.ubicacion,
+    coordenadas: record.ubicacion,
     gps: mapsLink || record.ubicacion,
     link_maps: mapsLink,
     notas: record.notas || '',
