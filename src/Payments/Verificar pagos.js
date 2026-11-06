@@ -697,12 +697,25 @@ if (typeof window !== 'undefined') {
 }
 
 const getTodayDate = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Caracas',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(new Date());
+  } catch (_) {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
 };
+if (typeof window !== 'undefined') {
+  window.getTodayVenezuelaDate = getTodayDate;
+}
 
 function safeParseDate(val) {
   if (!val) return new Date();
@@ -1419,15 +1432,6 @@ export const verificarPagosViewHTML = `
             <svg id="icReporteRefresh" class="ic" viewBox="0 0 24 24" style="width: 14px; height: 14px; stroke: currentColor;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             <span id="lblBtnSolicitarReporte">Solicitar Reporte</span>
           </button>
-
-          <button
-            type="button"
-            onclick="window.solicitarReporteTransferencias(0, true)"
-            style="display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 11px; background: var(--fill); color: var(--soft); font-size: 11.5px; font-weight: 600; border-radius: 10px; border: 1px solid var(--hair); cursor: pointer;"
-            title="Consultar todas las transferencias sin filtrar por turno o caja"
-          >
-            <span>Ver Todas</span>
-          </button>
         </div>
       </div>
 
@@ -1441,12 +1445,12 @@ export const verificarPagosViewHTML = `
       <div class="vp-form-grid" style="gap: 10px;">
         <div>
           <label for="reporteFilterFecha" style="display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">
-            Fecha (opcional)
+            Fecha
           </label>
           <input
             id="reporteFilterFecha"
             type="date"
-            value=""
+            value="${getTodayDate()}"
             onchange="window.solicitarReporteTransferencias(0, false)"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: var(--fill); border: 1px solid var(--hair); border-radius: 9px; color: var(--ink); font-family: inherit; outline: none; color-scheme: dark;"
           />
@@ -1712,6 +1716,11 @@ export function initVerificarPagos() {
     if (manualBinanceInput && !manualBinanceInput.value && currentTotalUsd && currentTotalUsd > 0) {
       manualBinanceInput.value = formatAmountNumber(currentTotalUsd);
     }
+  }
+
+  const fechaReporteEl = document.getElementById('reporteFilterFecha');
+  if (fechaReporteEl && !fechaReporteEl.value) {
+    fechaReporteEl.value = getTodayDate();
   }
 }
 window.initVerificarPagos = initVerificarPagos;
@@ -3843,6 +3852,10 @@ window.setPaymentMainMode = (mode) => {
     if (paymentCard) paymentCard.style.display = 'none';
     if (reporteCard) reporteCard.style.display = 'flex';
     if (titleEl) titleEl.textContent = 'Reporte de Transferencias';
+    const fechaEl = document.getElementById('reporteFilterFecha');
+    if (fechaEl && !fechaEl.value) {
+      fechaEl.value = getTodayDate();
+    }
     renderReporteFilterBadges(false);
     window.solicitarReporteTransferencias(0, false);
   } else {
@@ -4110,7 +4123,8 @@ window.renderReporteTransfersList = (list, totalCount) => {
     const turno = item.turno_entrada || item.turno || '-';
     const usuario = item.usuario || '-';
     const sede = item.sede || '-';
-    const empresa = item.empresa || '';
+    const bancoReceptor = item.banco_receptor || (isBinance ? 'Binance Pay' : 'Banco de Venezuela');
+    const empresa = item.empresa || (isBinance ? 'FABRICA COMBOX C.A' : 'TU COMBOX C.A');
 
     html += `
       <div
@@ -4124,13 +4138,17 @@ window.renderReporteTransfersList = (list, totalCount) => {
           <div style="min-width: 0; flex: 1;">
             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
               <span style="font-size: 13px; font-weight: 700; color: var(--ink);">${bancoEmisor}</span>
-              <span style="font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #38BDF8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); padding: 1px 7px; border-radius: 6px;">
-                Ref: ${referencia}
+              <span style="color: var(--muted); font-size: 12px;">-</span>
+              <span style="font-size: 12px; font-weight: 600; color: var(--soft); font-family: 'JetBrains Mono', monospace;">${telefonoCliente}</span>
+              <span style="color: var(--muted); font-size: 12px;">-</span>
+              <span style="display: inline-flex; align-items: center; font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #38BDF8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.28); padding: 1px 7px; border-radius: 6px;">
+                ${referencia}
               </span>
             </div>
-            <div style="font-size: 11.5px; color: var(--soft); margin-top: 3px; font-family: 'JetBrains Mono', monospace;">
-              Cliente / Tel: <strong>${telefonoCliente}</strong>
-              ${empresa ? `<span style="color: var(--muted);"> · ${empresa}</span>` : ''}
+            <div style="font-size: 10.5px; color: var(--muted); margin-top: 2.5px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-weight: 500; opacity: 0.9;">
+              <span>${bancoReceptor}</span>
+              <span style="opacity: 0.5;">-</span>
+              <span>${empresa}</span>
             </div>
           </div>
 
