@@ -855,43 +855,33 @@ async function callSupabase(action, payload) {
     xRegion: 'sa-east-1'
   };
 
-  // 1. Intentar primero con el proxy local (/api/verify) si existe servidor backend
+  // Única llamada directa optimizada al proxy /api/verify
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const response = await fetch('/api/verify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(proxyPayload),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
 
-    if (response.ok) {
-      return await response.json();
+    const data = await response.json().catch(() => null);
+    if (data && typeof data === 'object') {
+      return data;
     }
-  } catch (apiErr) {
-    // Si falla (ej. GitHub Pages estático sin backend), intentamos llamada directa a Supabase Edge Function
-    console.warn("Proxy /api/verify no disponible, intentando llamada directa a Supabase...", apiErr);
-  }
-
-  // 2. Fallback: Llamada directa a Supabase Edge Function (para GitHub Pages / Static Hosting)
-  try {
-    const { data, error } = await supabase.functions.invoke('swift-handler', {
-      body: {
-        action,
-        ...safePayload
-      },
-      headers: {
-        'x-region': 'sa-east-1'
-      }
-    });
-
-    if (error) throw error;
-    return data;
+    throw new Error(`Respuesta inválida del servidor de pagos (${response.status})`);
   } catch (err) {
-    console.error("Error en llamada directa a Supabase:", err);
-    throw new Error(err?.message || 'Error de conexión con el servicio de pagos.');
+    clearTimeout(timeoutId);
+    if (err?.name === 'AbortError') {
+      throw new Error('El banco está demorando en responder. Por favor reintenta en unos segundos.');
+    }
+    throw err;
   }
 }
 
@@ -2667,9 +2657,18 @@ window.handleBdvSubmit = async (e) => {
 
   hideResultCard();
 
+  const activeAccountKey = DEFAULT_MERCHANT_CONFIG.bdvAccountKey || 'tucombox';
+
+  // Watchdog de seguridad para asegurar que el botón nunca quede bloqueado
+  let watchdog = setTimeout(() => {
+    if (btn && btn.disabled) {
+      btn.disabled = false;
+      if (btnText) btnText.innerHTML = `Verificar Pago`;
+      toast('⚠️ La consulta al banco tardó más de lo esperado. Por favor reintenta.');
+    }
+  }, 16000);
+
   try {
-    // ✅ Llama a Supabase (action: bdv) con la cuenta seleccionada ('tucombox' o 'fabrica')
-    const activeAccountKey = DEFAULT_MERCHANT_CONFIG.bdvAccountKey || 'tucombox';
     const resData = await callSupabase('bdv', {
       cuenta: activeAccountKey,
       bancoOrigen,
@@ -2744,10 +2743,14 @@ window.handleBdvSubmit = async (e) => {
       reference: referencia,
       merchantName: DEFAULT_MERCHANT_CONFIG.bdvAccountName,
       merchantAccountKey: activeAccountKey,
+      bankCode: bancoOrigen,
+      bankName: getBankName(bancoOrigen),
       paymentDate: fechaPago
     };
     renderResultCard(currentResult);
+    toast(currentResult.message);
   } finally {
+    if (watchdog) clearTimeout(watchdog);
     if (btn) btn.disabled = false;
     if (btnText) btnText.innerHTML = `Verificar Pago`;
   }
@@ -3262,6 +3265,14 @@ window.handleBinanceManualSubmit = async (e) => {
 
   hideResultCard();
 
+  let watchdog = setTimeout(() => {
+    if (btn && btn.disabled) {
+      btn.disabled = false;
+      if (btnText) btnText.innerHTML = `Verificar Pago`;
+      toast('⚠️ La consulta tardó más de lo esperado. Por favor reintenta.');
+    }
+  }, 16000);
+
   try {
     let resData = await callSupabase("binance", {
       importe: numAmount,
@@ -3380,7 +3391,9 @@ window.handleBinanceManualSubmit = async (e) => {
       bankName: 'Binance Pay',
     };
     renderResultCard(currentResult);
+    toast(currentResult.message);
   } finally {
+    if (watchdog) clearTimeout(watchdog);
     if (btn) btn.disabled = false;
     if (btnText) btnText.innerHTML = `Verificar Pago`;
   }

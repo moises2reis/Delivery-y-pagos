@@ -37,7 +37,7 @@ async function startServer() {
   // ENDPOINTS DE BINANCE PAY Y BDV (Supabase Edge Functions)
   // ============================================================
 
-  app.post("/api/binance/order", async (req, res) => {
+  app.post(["/api/binance/order", "/Delivery-y-pagos/api/binance/order"], async (req, res) => {
     try {
       const {
         orderAmount,
@@ -113,7 +113,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/binance/order/query", async (req, res) => {
+  app.post(["/api/binance/order/query", "/Delivery-y-pagos/api/binance/order/query"], async (req, res) => {
     try {
       const { merchantTradeNo, prepayId } = req.body;
       if (!merchantTradeNo && !prepayId) {
@@ -155,26 +155,32 @@ async function startServer() {
   });
 
   // Endpoints Proxy (Genérico para Verify / BDV / etc)
-  app.post(["/api/verify", "/api/verify-payment"], async (req, res) => {
+  app.post(["/api/verify", "/api/verify-payment", "/Delivery-y-pagos/api/verify", "/Delivery-y-pagos/api/verify-payment"], async (req, res) => {
     try {
       const { endpointUrl, xRegion, ...payload } = req.body;
       if (payload.action === "bdv" && !payload.cedulaPagador) {
         payload.cedulaPagador = "0";
       }
 
-      // Invocar la Edge Function usando Supabase Client
-      const { data, error } = await supabase.functions.invoke('swift-handler', {
+      // Invocar la Edge Function con timeout de seguridad de 14s
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error("Tiempo de espera agotado al consultar servicio BDV")), 14000)
+      );
+
+      const invokePromise = supabase.functions.invoke('swift-handler', {
         body: payload,
         headers: {
           'x-region': xRegion || 'sa-east-1'
         }
       });
 
+      const { data, error } = await Promise.race([invokePromise, timeoutPromise]);
+
       if (error) {
         console.error("Supabase edge function error:", error);
         return res.status(502).json({
           code: 9999,
-          message: "Error al interpretar respuesta del servicio de pagos.",
+          message: error?.message || "Error al interpretar respuesta del servicio de pagos.",
         });
       }
 
