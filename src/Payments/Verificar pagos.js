@@ -261,36 +261,65 @@ function normalizeTurnoValue(val) {
   return str;
 }
 
+function matchesFechaQuery(raw, fQuery) {
+  if (!raw || !fQuery) return false;
+  const str = String(raw).trim();
+  if (str === fQuery) return true;
+
+  // 1. Coincidencia directa por prefijo YYYY-MM-DD (ej: "2026-11-10T00:27:18.361Z")
+  if (str.slice(0, 10) === fQuery) return true;
+
+  // 2. Coincidencia si viene como DD/MM/YYYY o DD-MM-YYYY (ej: "10/11/2026 10:00:00")
+  const firstPart = str.split(/[\sT,]/)[0];
+  const parts = firstPart.split(/[\/\-]/);
+  if (parts.length === 3) {
+    if (parts[2].length === 4) {
+      const dmy = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      if (dmy === fQuery) return true;
+    } else if (parts[0].length === 4) {
+      const ymd = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      if (ymd === fQuery) return true;
+    }
+  }
+
+  // 3. Fallback con objeto Date en zona horaria America/Caracas, UTC y local
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    try {
+      const caracasParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Caracas',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(d);
+      const cYear = caracasParts.find(p => p.type === 'year')?.value;
+      const cMonth = caracasParts.find(p => p.type === 'month')?.value;
+      const cDay = caracasParts.find(p => p.type === 'day')?.value;
+      if (cYear && cMonth && cDay && `${cYear}-${cMonth}-${cDay}` === fQuery) {
+        return true;
+      }
+    } catch (_) {}
+
+    const utcYear = d.getUTCFullYear();
+    const utcMonth = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const utcDay = String(d.getUTCDate()).padStart(2, '0');
+    if (`${utcYear}-${utcMonth}-${utcDay}` === fQuery) return true;
+
+    const lYear = d.getFullYear();
+    const lMonth = String(d.getMonth() + 1).padStart(2, '0');
+    const lDay = String(d.getDate()).padStart(2, '0');
+    if (`${lYear}-${lMonth}-${lDay}` === fQuery) return true;
+  }
+  return false;
+}
+
 function filterTransfersClientSide(list, filtros = {}) {
   let result = Array.isArray(list) ? [...list] : [];
 
   if (filtros.fecha && String(filtros.fecha).trim() !== '') {
     const fQuery = String(filtros.fecha).trim(); // Formato esperado YYYY-MM-DD
     result = result.filter(item => {
-      const raw = String(item.fecha_hora || '').trim();
-      if (!raw) return false;
-      // 1. Si coincide directamente con YYYY-MM-DD
-      if (raw.slice(0, 10) === fQuery) return true;
-      // 2. Si viene como DD/MM/YYYY o DD-MM-YYYY
-      const parts = raw.split(/[\sT,]/)[0].split(/[\/\-]/);
-      if (parts.length === 3) {
-        if (parts[2].length === 4) {
-          const dmy = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-          if (dmy === fQuery) return true;
-        } else if (parts[0].length === 4) {
-          const ymd = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-          if (ymd === fQuery) return true;
-        }
-      }
-      // 3. Fallback con objeto Date
-      const d = new Date(raw);
-      if (!isNaN(d.getTime())) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}` === fQuery;
-      }
-      return false;
+      return matchesFechaQuery(item.fecha_hora, fQuery);
     });
   }
   if (filtros.caja && String(filtros.caja).trim() !== '') {
@@ -390,6 +419,24 @@ function updateSheetSyncBadgeUI(statusType, textMsg) {
   }
 }
 
+function getVenezuelanTimestamp() {
+  const now = new Date();
+  const fecha = now.toLocaleDateString('es-VE', {
+    timeZone: 'America/Caracas',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+  const hora = now.toLocaleTimeString('en-US', {
+    timeZone: 'America/Caracas',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+  return `${fecha} ${hora}`;
+}
+
 // ENVIAR PAGO VERIFICADO A GOOGLE SHEETS (doPost)
 export async function sendVerifiedPaymentToSheet(record, force = false) {
   if (!isPaymentValidForSheet(record, force)) return null;
@@ -405,7 +452,7 @@ export async function sendVerifiedPaymentToSheet(record, force = false) {
     telefono_cliente: telefonoCliente || 'N/A',
     monto_bs: montoNum,
     referencia: referenciaStr || '0000',
-    fecha_hora: new Date().toISOString(),
+    fecha_hora: getVenezuelanTimestamp(),
     caja: getCajaForSheet(),
     turno_entrada: getTurnoForSheet(),
     usuario: getUsuarioForSheet(),
@@ -542,56 +589,94 @@ export async function obtenerTransferencias(filtros = {}) {
   // (Nunca enviar 'banco', 'monto' ni 'monto_$' para no activar manejarBancos)
   const SERVER_FILTER_KEYS = ['fecha', 'caja', 'turno', 'sede', 'banco_receptor', 'empresa'];
 
-  const buildQueryParams = (omitTurno = false) => {
+  const buildQueryParams = (omitTurno = false, omitFecha = false, customLimit = null) => {
     const params = new URLSearchParams();
     SERVER_FILTER_KEYS.forEach((key) => {
       if (omitTurno && key === 'turno') return;
+      if (omitFecha && key === 'fecha') return;
       const value = filtros[key];
       if (value !== undefined && value !== null && String(value).trim() !== '') {
         params.append(key, String(value).trim());
       }
     });
-    params.append('limit', String(limit));
+    params.append('limit', String(customLimit || limit));
     params.append('offset', String(offset));
     return params;
   };
 
   try {
-    const params = buildQueryParams(false);
-    const response = await fetch(`${PAYMENTS_SHEET_API_URL}?${params.toString()}`);
-    let data = await response.json().catch(() => null);
-    if (data && data.spreadsheetUrl && typeof window !== 'undefined') {
-      window.__activeSpreadsheetUrl = data.spreadsheetUrl;
-      const reportLink = document.getElementById('btnOpenActiveGoogleSheet');
-      if (reportLink) reportLink.href = data.spreadsheetUrl;
+    let data = null;
+    let spreadsheetUrl = null;
+
+    // Estrategia robusta contra desfase de zona horaria (UTC vs America/Caracas):
+    // Cuando se filtra por fecha, traemos primero un bloque generoso de registros recientes (limit=300)
+    // omitiendo el parámetro 'fecha' en el servidor, y aplicando matchesFechaQuery en cliente.
+    // Esto garantiza que transferencias guardadas con timestamps UTC (como 2026-11-10T00:27:18.361Z)
+    // no sean descartadas por la función interna de Apps Script.
+    if (filtros.fecha && String(filtros.fecha).trim() !== '') {
+      try {
+        const recentParams = buildQueryParams(false, true, 300);
+        const resRecent = await fetch(`${PAYMENTS_SHEET_API_URL}?${recentParams.toString()}`);
+        const dataRecent = await resRecent.json().catch(() => null);
+        if (dataRecent && (dataRecent.status === 'success' || Array.isArray(dataRecent.data))) {
+          if (dataRecent.spreadsheetUrl) spreadsheetUrl = dataRecent.spreadsheetUrl;
+          const rawItems = Array.isArray(dataRecent.data) ? dataRecent.data : (Array.isArray(dataRecent) ? dataRecent : []);
+          const matched = filterTransfersClientSide(rawItems, filtros);
+          if (matched.length > 0) {
+            data = {
+              status: 'success',
+              data: matched,
+              total: matched.length,
+              spreadsheetUrl: dataRecent.spreadsheetUrl
+            };
+          }
+        }
+      } catch (errRecent) {
+        console.warn('Aviso en consulta reciente:', errRecent);
+      }
     }
 
-    // Si se filtró por turno y el servidor devolvió 0 resultados (ej. Google Sheets formateó la celda de hora como Date),
-    // reintentamos sin el parámetro turno en servidor y filtramos el turno en cliente
-    if (
-      data &&
-      data.status === 'success' &&
-      Array.isArray(data.data) &&
-      data.data.length === 0 &&
-      filtros.turno &&
-      String(filtros.turno).trim() !== ''
-    ) {
-      const retryParams = buildQueryParams(true);
-      const retryRes = await fetch(`${PAYMENTS_SHEET_API_URL}?${retryParams.toString()}`);
-      const retryData = await retryRes.json().catch(() => null);
-      if (retryData && retryData.status === 'success' && Array.isArray(retryData.data)) {
-        data = retryData;
+    // Si no se encontraron registros en el bloque reciente (por ejemplo, una fecha histórica antigua),
+    // consultamos al servidor con el parámetro 'fecha' directamente
+    if (!data) {
+      const params = buildQueryParams(false, false);
+      const response = await fetch(`${PAYMENTS_SHEET_API_URL}?${params.toString()}`);
+      data = await response.json().catch(() => null);
+      if (data && data.spreadsheetUrl) spreadsheetUrl = data.spreadsheetUrl;
+
+      // Si el servidor devolvió 0 y teníamos filtro de turno, reintentar sin turno
+      if (
+        data &&
+        data.status === 'success' &&
+        Array.isArray(data.data) &&
+        data.data.length === 0 &&
+        filtros.turno &&
+        String(filtros.turno).trim() !== ''
+      ) {
+        const retryParams = buildQueryParams(true, false);
+        const retryRes = await fetch(`${PAYMENTS_SHEET_API_URL}?${retryParams.toString()}`);
+        const retryData = await retryRes.json().catch(() => null);
+        if (retryData && retryData.status === 'success' && Array.isArray(retryData.data)) {
+          data = retryData;
+        }
       }
+    }
+
+    if (spreadsheetUrl && typeof window !== 'undefined') {
+      window.__activeSpreadsheetUrl = spreadsheetUrl;
+      const reportLink = document.getElementById('btnOpenActiveGoogleSheet');
+      if (reportLink) reportLink.href = spreadsheetUrl;
     }
 
     if (data && (data.status === 'success' || Array.isArray(data.data) || Array.isArray(data))) {
       let remotas = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
-      // Aplicar filtrado en cliente para 'usuario' y normalización de 'turno'
+      // Aplicar filtrado en cliente para 'usuario', normalización de 'turno' y verificación de 'fecha'
       remotas = filterTransfersClientSide(remotas, filtros);
 
       const hasClientSideOnlyFilter = Boolean(
         (filtros.usuario && String(filtros.usuario).trim() !== '') ||
-        (filtros.turno && String(filtros.turno).trim() !== '')
+        (filtros.turno && String(filtros.turno).trim() !== '') ||
+        (filtros.fecha && String(filtros.fecha).trim() !== '')
       );
       const total = typeof data?.total === 'number' && !hasClientSideOnlyFilter
         ? data.total
@@ -3794,39 +3879,31 @@ let reportePaginationState = {
   offset: 0,
   total: 0,
   hayMas: false,
-  ignoreMetaFilters: false
+  ignoreMetaFilters: true
 };
 let usuarioFilterDebounceTimer = null;
 
-function renderReporteFilterBadges(ignoreMeta = false) {
+function renderReporteFilterBadges(ignoreMeta = true) {
   const container = document.getElementById('reporteActiveFilterBadges');
   if (!container) return;
 
-  if (ignoreMeta) {
-    container.innerHTML = `
-      <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(0, 255, 0, 0.12); border: 1px solid rgba(0, 255, 0, 0.3); color: #00FF00; font-weight: 700; font-size: 10.5px;">
-        Todas las transferencias (sin filtro de cabecera)
-      </span>
-    `;
-    return;
-  }
-
-  const caja = getCajaForSheet();
-  const turno = getTurnoForSheet();
-  const usuario = getUsuarioForSheet();
-  const sede = getActiveSedeForSheet();
   const fechaEl = document.getElementById('reporteFilterFecha');
   const fecha = fechaEl ? fechaEl.value.trim() : '';
+  const bancoRecEl = document.getElementById('reporteFilterBancoReceptor');
+  const bancoRec = bancoRecEl ? bancoRecEl.value.trim() : '';
+  const empresaEl = document.getElementById('reporteFilterEmpresa');
+  const empresa = empresaEl ? empresaEl.value.trim() : '';
+  const searchEl = document.getElementById('reporteFilterSearch');
+  const searchVal = searchEl ? searchEl.value.trim() : '';
 
   const badges = [];
-  if (caja) badges.push({ label: 'Caja', val: caja });
-  if (turno) badges.push({ label: 'Turno', val: turno });
-  if (usuario) badges.push({ label: 'Usuario', val: usuario });
-  if (sede) badges.push({ label: 'Sede', val: sede });
   if (fecha) badges.push({ label: 'Fecha', val: fecha });
+  if (bancoRec) badges.push({ label: 'Banco', val: bancoRec });
+  if (empresa) badges.push({ label: 'Empresa', val: empresa });
+  if (searchVal) badges.push({ label: 'Buscar', val: searchVal });
 
   if (badges.length === 0) {
-    container.innerHTML = `<span style="color: var(--soft); font-weight: 600;">Todos los registros</span>`;
+    container.innerHTML = `<span style="color: var(--soft); font-weight: 600;">Todas las transferencias</span>`;
     return;
   }
 
@@ -3856,8 +3933,8 @@ window.setPaymentMainMode = (mode) => {
     if (fechaEl && !fechaEl.value) {
       fechaEl.value = getTodayDate();
     }
-    renderReporteFilterBadges(false);
-    window.solicitarReporteTransferencias(0, false);
+    renderReporteFilterBadges(true);
+    window.solicitarReporteTransferencias(0, true);
   } else {
     if (reporteCard) reporteCard.style.display = 'none';
     if (paymentCard) paymentCard.style.display = 'block';
@@ -3867,20 +3944,10 @@ window.setPaymentMainMode = (mode) => {
 
 window.onMetaPillFilterUpdated = () => {
   saveHeaderMetaToCache();
-  if (activeMainPaymentMode === 'reporte') {
-    renderReporteFilterBadges(false);
-    window.solicitarReporteTransferencias(0, false);
-  }
 };
 
 window.onMetaUsuarioInput = () => {
   saveHeaderMetaToCache();
-  if (activeMainPaymentMode !== 'reporte') return;
-  renderReporteFilterBadges(false);
-  if (usuarioFilterDebounceTimer) clearTimeout(usuarioFilterDebounceTimer);
-  usuarioFilterDebounceTimer = setTimeout(() => {
-    window.solicitarReporteTransferencias(0, false);
-  }, 450);
 };
 
 function formatReporteFechaHora(raw) {
@@ -3898,11 +3965,13 @@ function formatReporteFechaHora(raw) {
   const d = new Date(str);
   if (!isNaN(d.getTime())) {
     const fecha = d.toLocaleDateString('es-VE', {
+      timeZone: 'America/Caracas',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
     const hora = d.toLocaleTimeString('en-US', {
+      timeZone: 'America/Caracas',
       hour: '2-digit',
       minute: '2-digit',
       hour12: true
@@ -3937,7 +4006,7 @@ function updateReporteKpis(list, totalCount) {
   if (usdtEl) usdtEl.textContent = `$${formatAmountNumber(sumUsdt) || '0,00'}`;
 }
 
-window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = false) => {
+window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = true) => {
   const listContainer = document.getElementById('reporteTransfersListContainer');
   const btn = document.getElementById('btnSolicitarReporte');
   const lblBtn = document.getElementById('lblBtnSolicitarReporte');
@@ -3945,7 +4014,7 @@ window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = f
   const paginationBar = document.getElementById('reportePaginationBar');
 
   reportePaginationState.offset = Math.max(0, Number(offset) || 0);
-  reportePaginationState.ignoreMetaFilters = Boolean(ignoreMetaFilters);
+  reportePaginationState.ignoreMetaFilters = Boolean(ignoreMetaFilters !== false);
 
   renderReporteFilterBadges(reportePaginationState.ignoreMetaFilters);
 
@@ -4094,11 +4163,6 @@ window.renderReporteTransfersList = (list, totalCount) => {
     container.innerHTML = `
       <div style="padding: 26px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px dashed var(--hair); border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
         <span>No se encontraron transferencias para los filtros seleccionados.</span>
-        ${
-          !reportePaginationState.ignoreMetaFilters
-            ? `<button type="button" onclick="window.solicitarReporteTransferencias(0, true)" style="padding: 6px 12px; border-radius: 8px; background: rgba(0,255,0,0.12); border: 1px solid rgba(0,255,0,0.3); color: #00FF00; font-size: 11.5px; font-weight: 700; cursor: pointer;">Ver todas las transferencias sin filtros</button>`
-            : ''
-        }
       </div>
     `;
     return;
@@ -4138,16 +4202,16 @@ window.renderReporteTransfersList = (list, totalCount) => {
           <div style="min-width: 0; flex: 1;">
             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
               <span style="font-size: 13px; font-weight: 700; color: var(--ink);">${bancoEmisor}</span>
-              <span style="color: var(--muted); font-size: 12px;">-</span>
-              <span style="font-size: 12px; font-weight: 600; color: var(--soft); font-family: 'JetBrains Mono', monospace;">${telefonoCliente}</span>
-              <span style="color: var(--muted); font-size: 12px;">-</span>
-              <span style="display: inline-flex; align-items: center; font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #38BDF8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.28); padding: 1px 7px; border-radius: 6px;">
+              <span style="color: #6B7280; font-size: 12px;">-</span>
+              <span style="font-size: 12px; font-weight: 500; color: #9CA3AF; font-family: 'JetBrains Mono', monospace;">${telefonoCliente}</span>
+              <span style="color: #6B7280; font-size: 12px;">-</span>
+              <span style="display: inline-flex; align-items: center; font-size: 11px; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #9CA3AF; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14); padding: 1px 7px; border-radius: 6px;">
                 ${referencia}
               </span>
             </div>
-            <div style="font-size: 10.5px; color: var(--muted); margin-top: 2.5px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-weight: 500; opacity: 0.9;">
+            <div style="font-size: 10px; color: #9CA3AF; margin-top: 2px; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-weight: 500; opacity: 0.85;">
               <span>${bancoReceptor}</span>
-              <span style="opacity: 0.5;">-</span>
+              <span style="opacity: 0.4;">-</span>
               <span>${empresa}</span>
             </div>
           </div>
