@@ -840,33 +840,36 @@ async function callSupabase(action, payload) {
     }
   }
 
-  // Asegurar que goodsName y goodsDetail no sean null
-  const safePayload = {
-    ...processedPayload,
-    goodsName: processedPayload?.goodsName || 'Pago Combox Valencia',
-    goodsDetail: processedPayload?.goodsDetail || 'Orden de cobro',
-    clientIp: cachedClientIp
-  };
+  // Construir payload limpio según la acción (BDV solo recibe sus campos exactos para evitar bloqueos en la Edge Function)
+  const requestBody = action === 'bdv'
+    ? {
+        action: 'bdv',
+        ...processedPayload
+      }
+    : {
+        action,
+        ...processedPayload,
+        goodsName: processedPayload?.goodsName || 'Pago Combox Valencia',
+        goodsDetail: processedPayload?.goodsDetail || 'Orden de cobro',
+        clientIp: cachedClientIp
+      };
 
-  const proxyPayload = {
-    action,
-    ...safePayload,
-    endpointUrl: DEFAULT_MERCHANT_CONFIG.supabaseEdgeUrl,
-    xRegion: 'sa-east-1'
-  };
+  // Única llamada directa optimizada a la Edge Function de Supabase (compatible con GitHub Pages y cualquier servidor)
+  const edgeUrl = DEFAULT_MERCHANT_CONFIG.supabaseEdgeUrl || 'https://htxzsefmejercvwlarfl.supabase.co/functions/v1/swift-handler';
+  const anonKey = DEFAULT_MERCHANT_CONFIG.supabaseAnonKey;
 
-  // Única llamada directa optimizada al proxy /api/verify
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 14000);
 
   try {
-    const response = await fetch('/api/verify', {
+    const response = await fetch(edgeUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Authorization': `Bearer ${anonKey}`,
+        'apikey': anonKey
       },
-      body: JSON.stringify(proxyPayload),
+      body: JSON.stringify(requestBody),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -875,7 +878,7 @@ async function callSupabase(action, payload) {
     if (data && typeof data === 'object') {
       return data;
     }
-    throw new Error(`Respuesta inválida del servidor de pagos (${response.status})`);
+    throw new Error(`Respuesta inválida del servicio bancario (${response.status})`);
   } catch (err) {
     clearTimeout(timeoutId);
     if (err?.name === 'AbortError') {
