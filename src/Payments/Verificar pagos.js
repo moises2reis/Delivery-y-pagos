@@ -854,37 +854,60 @@ async function callSupabase(action, payload) {
         clientIp: cachedClientIp
       };
 
-  // Única llamada directa optimizada a la Edge Function de Supabase (compatible con GitHub Pages y cualquier servidor)
+  // Llamada optimizada a la Edge Function de Supabase con protección contra paquetes lentos de BDV:
+  // Normalmente BDV responde en ~300-600 ms. Si una instancia tarda más de 3.8s, reintenta de inmediato en región alterna.
   const edgeUrl = DEFAULT_MERCHANT_CONFIG.supabaseEdgeUrl || 'https://htxzsefmejercvwlarfl.supabase.co/functions/v1/swift-handler';
   const anonKey = DEFAULT_MERCHANT_CONFIG.supabaseAnonKey;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 14000);
+  const invokeEdgeWithTimeout = async (region, timeoutMs) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${anonKey}`,
+      'apikey': anonKey
+    };
+    if (region) {
+      headers['x-region'] = region;
+    }
+
+    try {
+      const response = await fetch(edgeUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json().catch(() => null);
+      if (data && typeof data === 'object') {
+        return data;
+      }
+      throw new Error(`Respuesta inválida del servicio bancario (${response.status})`);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
+    }
+  };
 
   try {
-    const response = await fetch(edgeUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${anonKey}`,
-        'apikey': anonKey
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    const data = await response.json().catch(() => null);
-    if (data && typeof data === 'object') {
-      return data;
+    // Intento primario rápido (3.8s)
+    return await invokeEdgeWithTimeout('sa-east-1', 3800);
+  } catch (firstErr) {
+    // Si la conexión con BDV se quedó colgada en el primer intento, reintentar al instante por nodo alterno
+    try {
+      return await invokeEdgeWithTimeout('us-east-1', 6000);
+    } catch (secondErr) {
+      try {
+        return await invokeEdgeWithTimeout(null, 6000);
+      } catch (finalErr) {
+        if (finalErr?.name === 'AbortError') {
+          throw new Error('El banco está demorando en responder. Por favor reintenta en unos segundos.');
+        }
+        throw finalErr;
+      }
     }
-    throw new Error(`Respuesta inválida del servicio bancario (${response.status})`);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err?.name === 'AbortError') {
-      throw new Error('El banco está demorando en responder. Por favor reintenta en unos segundos.');
-    }
-    throw err;
   }
 }
 
@@ -2669,7 +2692,7 @@ window.handleBdvSubmit = async (e) => {
       if (btnText) btnText.innerHTML = `Verificar Pago`;
       toast('⚠️ La consulta al banco tardó más de lo esperado. Por favor reintenta.');
     }
-  }, 16000);
+  }, 18000);
 
   try {
     const resData = await callSupabase('bdv', {
