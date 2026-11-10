@@ -135,15 +135,15 @@ export function restoreHeaderMetaFromCache() {
   if (usuarioEl && cached.usuario) {
     usuarioEl.value = cached.usuario;
   }
-  if (sedeEl && cached.sede) {
-    sedeEl.value = cached.sede;
+  if (sedeEl) {
+    sedeEl.value = cached.sede || 'Naguanagua, Las Quintas';
   }
 }
 
 function getActiveSedeForSheet() {
   const input = typeof document !== 'undefined' ? document.getElementById('vpMetaSede') : null;
   const val = input ? input.value.trim() : '';
-  return val || getCachedHeaderMeta().sede || '';
+  return val || getCachedHeaderMeta().sede || 'Naguanagua, Las Quintas';
 }
 
 function getCajaForSheet() {
@@ -561,7 +561,7 @@ export async function guardarDeNuevoASheets() {
 
       // Si existe la función de recargar reporte, actualizarlo inmediatamente
       if (typeof window !== 'undefined' && typeof window.solicitarReporteTransferencias === 'function') {
-        window.solicitarReporteTransferencias(0, true).catch(() => {});
+        window.solicitarReporteTransferencias(0).catch(() => {});
       }
     } else {
       if (lblCard) lblCard.textContent = 'Reintentar Guardar';
@@ -1075,8 +1075,7 @@ export const verificarPagosViewHTML = `
         <label id="pillMetaSede" style="display: inline-flex; align-items: center; gap: 5px; background: var(--fill); border: 1px solid var(--hair); border-radius: 999px; padding: 4px 11px; height: 29px; box-sizing: border-box; cursor: pointer; transition: 0.15s;">
           <span style="font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;">Sede:</span>
           <select id="vpMetaSede" required onchange="window.clearMetaPillError('pillMetaSede'); this.style.color = '#f4f4f5'; if (window.onMetaPillFilterUpdated) window.onMetaPillFilterUpdated();" style="min-width: 110px; border: none; background: transparent; color: #f4f4f5; font-size: 11.5px; font-weight: 700; font-family: inherit; outline: none; padding: 0 2px 0 0; margin: 0; cursor: pointer; color-scheme: dark;">
-            <option value="" selected style="background-color: #18181b; color: #a1a1aa;"></option>
-            <option value="Naguanagua, Las Quintas" style="background-color: #18181b; color: #f4f4f5;">Naguanagua, Las Quintas</option>
+            <option value="Naguanagua, Las Quintas" selected style="background-color: #18181b; color: #f4f4f5;">Naguanagua, Las Quintas</option>
             <option value="Av. Bolivar Norte" style="background-color: #18181b; color: #f4f4f5;">Av. Bolivar Norte</option>
           </select>
         </label>
@@ -1510,7 +1509,7 @@ export const verificarPagosViewHTML = `
           <button
             type="button"
             id="btnSolicitarReporte"
-            onclick="window.solicitarReporteTransferencias(0, false)"
+            onclick="window.solicitarReporteTransferencias(0)"
             style="display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 14px; background: #00FF00; color: #000000; font-size: 12px; font-weight: 800; border-radius: 10px; border: none; box-shadow: 0 0 16px rgba(0,255,0,0.3); cursor: pointer;"
             title="Consultar según Caja, Turno, Usuario y Sede seleccionados arriba"
           >
@@ -1536,7 +1535,7 @@ export const verificarPagosViewHTML = `
             id="reporteFilterFecha"
             type="date"
             value="${getTodayDate()}"
-            onchange="window.solicitarReporteTransferencias(0, false)"
+            onchange="window.solicitarReporteTransferencias(0)"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: var(--fill); border: 1px solid var(--hair); border-radius: 9px; color: var(--ink); font-family: inherit; outline: none; color-scheme: dark;"
           />
         </div>
@@ -1547,7 +1546,7 @@ export const verificarPagosViewHTML = `
           </label>
           <select
             id="reporteFilterBancoReceptor"
-            onchange="window.solicitarReporteTransferencias(0, false)"
+            onchange="window.solicitarReporteTransferencias(0)"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: #18181b; border: 1px solid var(--hair); border-radius: 9px; color: #f4f4f5; font-family: inherit; outline: none; color-scheme: dark;"
           >
             <option value="" style="background-color: #18181b; color: #f4f4f5;">Todos</option>
@@ -1562,7 +1561,7 @@ export const verificarPagosViewHTML = `
           </label>
           <select
             id="reporteFilterEmpresa"
-            onchange="window.solicitarReporteTransferencias(0, false)"
+            onchange="window.solicitarReporteTransferencias(0)"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: #18181b; border: 1px solid var(--hair); border-radius: 9px; color: #f4f4f5; font-family: inherit; outline: none; color-scheme: dark;"
           >
             <option value="" style="background-color: #18181b; color: #f4f4f5;">Todas</option>
@@ -3887,15 +3886,18 @@ let reportePaginationState = {
   limit: 100,
   offset: 0,
   total: 0,
-  hayMas: false,
-  ignoreMetaFilters: true
+  hayMas: false
 };
 let usuarioFilterDebounceTimer = null;
 
-function renderReporteFilterBadges(ignoreMeta = true) {
+function renderReporteFilterBadges() {
   const container = document.getElementById('reporteActiveFilterBadges');
   if (!container) return;
 
+  const sede = getActiveSedeForSheet();
+  const caja = getCajaForSheet();
+  const turno = getTurnoForSheet();
+  const usuario = getUsuarioForSheet();
   const fechaEl = document.getElementById('reporteFilterFecha');
   const fecha = fechaEl ? fechaEl.value.trim() : '';
   const bancoRecEl = document.getElementById('reporteFilterBancoReceptor');
@@ -3906,13 +3908,17 @@ function renderReporteFilterBadges(ignoreMeta = true) {
   const searchVal = searchEl ? searchEl.value.trim() : '';
 
   const badges = [];
+  if (sede) badges.push({ label: 'Sede', val: sede });
+  if (caja) badges.push({ label: 'Caja', val: caja });
+  if (turno) badges.push({ label: 'Turno', val: turno });
+  if (usuario) badges.push({ label: 'Usuario', val: usuario });
   if (fecha) badges.push({ label: 'Fecha', val: fecha });
   if (bancoRec) badges.push({ label: 'Banco', val: bancoRec });
   if (empresa) badges.push({ label: 'Empresa', val: empresa });
   if (searchVal) badges.push({ label: 'Buscar', val: searchVal });
 
   if (badges.length === 0) {
-    container.innerHTML = `<span style="color: var(--soft); font-weight: 600;">Todas las transferencias</span>`;
+    container.innerHTML = `<span style="color: var(--soft); font-weight: 600;">Todos los registros</span>`;
     return;
   }
 
@@ -3942,8 +3948,9 @@ window.setPaymentMainMode = (mode) => {
     if (fechaEl && !fechaEl.value) {
       fechaEl.value = getTodayDate();
     }
-    renderReporteFilterBadges(true);
-    window.solicitarReporteTransferencias(0, true);
+    restoreHeaderMetaFromCache();
+    renderReporteFilterBadges();
+    window.solicitarReporteTransferencias(0);
   } else {
     if (reporteCard) reporteCard.style.display = 'none';
     if (paymentCard) paymentCard.style.display = 'block';
@@ -3953,10 +3960,20 @@ window.setPaymentMainMode = (mode) => {
 
 window.onMetaPillFilterUpdated = () => {
   saveHeaderMetaToCache();
+  if (activeMainPaymentMode === 'reporte') {
+    renderReporteFilterBadges();
+    window.solicitarReporteTransferencias(0);
+  }
 };
 
 window.onMetaUsuarioInput = () => {
   saveHeaderMetaToCache();
+  if (activeMainPaymentMode !== 'reporte') return;
+  renderReporteFilterBadges();
+  if (usuarioFilterDebounceTimer) clearTimeout(usuarioFilterDebounceTimer);
+  usuarioFilterDebounceTimer = setTimeout(() => {
+    window.solicitarReporteTransferencias(0);
+  }, 400);
 };
 
 function formatReporteFechaHora(raw) {
@@ -4015,7 +4032,7 @@ function updateReporteKpis(list, totalCount) {
   if (usdtEl) usdtEl.textContent = `$${formatAmountNumber(sumUsdt) || '0,00'}`;
 }
 
-window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = true) => {
+window.solicitarReporteTransferencias = async (offset = 0) => {
   const listContainer = document.getElementById('reporteTransfersListContainer');
   const btn = document.getElementById('btnSolicitarReporte');
   const lblBtn = document.getElementById('lblBtnSolicitarReporte');
@@ -4023,9 +4040,8 @@ window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = t
   const paginationBar = document.getElementById('reportePaginationBar');
 
   reportePaginationState.offset = Math.max(0, Number(offset) || 0);
-  reportePaginationState.ignoreMetaFilters = Boolean(ignoreMetaFilters !== false);
 
-  renderReporteFilterBadges(reportePaginationState.ignoreMetaFilters);
+  renderReporteFilterBadges();
 
   const fechaEl = document.getElementById('reporteFilterFecha');
   const fechaVal = fechaEl ? fechaEl.value.trim() : '';
@@ -4043,17 +4059,16 @@ window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = t
   if (bancoRecVal) filtros.banco_receptor = bancoRecVal;
   if (empresaVal) filtros.empresa = empresaVal;
 
-  if (!reportePaginationState.ignoreMetaFilters) {
-    const caja = getCajaForSheet();
-    const turno = getTurnoForSheet();
-    const usuario = getUsuarioForSheet();
-    const sede = getActiveSedeForSheet();
+  // Filtrar siempre por los valores de las pastillas del encabezado (Sede, Caja, Turno, Usuario)
+  const sede = getActiveSedeForSheet();
+  const caja = getCajaForSheet();
+  const turno = getTurnoForSheet();
+  const usuario = getUsuarioForSheet();
 
-    if (caja) filtros.caja = caja;
-    if (turno) filtros.turno = turno;
-    if (usuario) filtros.usuario = usuario;
-    if (sede) filtros.sede = sede;
-  }
+  if (sede) filtros.sede = sede;
+  if (caja) filtros.caja = caja;
+  if (turno) filtros.turno = turno;
+  if (usuario) filtros.usuario = usuario;
 
   if (btn) btn.disabled = true;
   if (lblBtn) lblBtn.textContent = 'Consultando...';
@@ -4112,7 +4127,7 @@ window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = t
         <div style="padding: 22px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px dashed var(--hair); border-radius: 12px;">
           <p style="margin: 0 0 6px; font-weight: 700; color: var(--ink);">No se encontraron transferencias disponibles</p>
           <span style="font-size: 11.5px; color: var(--muted); display: block; margin-bottom: 10px;">Verifica los filtros seleccionados o intenta nuevamente.</span>
-          <button type="button" onclick="window.solicitarReporteTransferencias(0, ${reportePaginationState.ignoreMetaFilters})" style="padding: 7px 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 8px; color: var(--ink); font-size: 11.5px; font-weight: 600; cursor: pointer;">Reintentar</button>
+          <button type="button" onclick="window.solicitarReporteTransferencias(0)" style="padding: 7px 14px; background: var(--card); border: 1px solid var(--hair); border-radius: 8px; color: var(--ink); font-size: 11.5px; font-weight: 600; cursor: pointer;">Reintentar</button>
         </div>
       `;
     }
@@ -4126,10 +4141,11 @@ window.solicitarReporteTransferencias = async (offset = 0, ignoreMetaFilters = t
 window.cambiarPaginaReporte = (direction) => {
   const newOffset = reportePaginationState.offset + direction * reportePaginationState.limit;
   if (newOffset < 0) return;
-  window.solicitarReporteTransferencias(newOffset, reportePaginationState.ignoreMetaFilters);
+  window.solicitarReporteTransferencias(newOffset);
 };
 
 window.filtrarListaReporteLocal = (query) => {
+  renderReporteFilterBadges();
   const q = String(query || '').toLowerCase().trim();
   if (!q) {
     window.renderReporteTransfersList(cachedReporteTransactions, reportePaginationState.total);
