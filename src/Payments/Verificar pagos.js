@@ -175,31 +175,27 @@ function getUsuarioForSheet() {
   return val || getCachedHeaderMeta().usuario || '';
 }
 
-function validateVpMetaFields() {
+function validateVpMetaFields(showErrorToast = true) {
   const fields = [
-    { id: 'vpMetaCaja', pillId: 'pillMetaCaja', label: 'Caja' },
-    { id: 'vpMetaTurnoEntrada', pillId: 'pillMetaTurno', label: 'Turno de entrada' },
-    { id: 'vpMetaUsuario', pillId: 'pillMetaUsuario', label: 'Usuario' },
-    { id: 'vpMetaSede', pillId: 'pillMetaSede', label: 'Sede' }
+    { id: 'vpMetaCaja', pillId: 'pillMetaCaja', label: 'Caja', defaultVal: 'Caja 01' },
+    { id: 'vpMetaTurnoEntrada', pillId: 'pillMetaTurno', label: 'Turno de entrada', defaultVal: '10:00am' },
+    { id: 'vpMetaUsuario', pillId: 'pillMetaUsuario', label: 'Usuario', defaultVal: 'Cajero' },
+    { id: 'vpMetaSede', pillId: 'pillMetaSede', label: 'Sede', defaultVal: 'Naguanagua, Las Quintas' }
   ];
 
   for (const f of fields) {
     const el = document.getElementById(f.id);
-    const pill = document.getElementById(f.pillId);
-    const val = el ? el.value.trim() : '';
+    let val = el ? el.value.trim() : '';
     if (!val) {
-      if (pill) {
-        pill.style.borderColor = '#EF4444';
-        pill.style.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.25)';
+      const cached = getCachedHeaderMeta();
+      if (cached && cached[f.label.toLowerCase()]) {
+        val = cached[f.label.toLowerCase()];
+      } else if (f.defaultVal) {
+        val = f.defaultVal;
       }
       if (el) {
-        el.focus();
-        if (f.id === 'vpMetaTurnoEntrada' && typeof el.showPicker === 'function') {
-          try { el.showPicker(); } catch (_) {}
-        }
+        el.value = val;
       }
-      toast(`Complete el campo obligatorio: ${f.label}`);
-      return false;
     }
   }
   saveHeaderMetaToCache();
@@ -370,25 +366,24 @@ function filterTransfersClientSide(list, filtros = {}) {
 function isPaymentValidForSheet(record, force = false) {
   if (!record) return false;
   const codeNum = Number(record.code);
-  // Si se fuerza manualmente con el botón "Guardar de nuevo a sheets", permitimos
-  // pagos validados (1000, 3000 o mensaje 'conciliado'). Solo bloqueamos 1010 o 9999.
-  if (force) {
-    return codeNum !== 1010 && codeNum !== 9999;
-  }
-  // Bloquear explícitamente error 1010 (pago no válido/rechazado)
-  if (codeNum === 1010) return false;
-  // Bloquear explícitamente error 3000 o cualquier mensaje de conciliado anteriormente en envío automático
-  if (codeNum === 3000) return false;
   const msg = String(record.message || '').toLowerCase();
-  if (
-    msg.includes('conciliado anteriormente') ||
-    msg.includes('ya fue conciliado') ||
-    msg.includes('ya fue conciliada') ||
-    msg.includes('3000')
-  ) {
-    return false;
+  const isConciliado =
+    codeNum === 3000 ||
+    record.status === 'conciliated' ||
+    msg.includes('conciliado') ||
+    msg.includes('ya fue conciliad') ||
+    msg.includes('ya fue validado');
+
+  // Si se fuerza manualmente con el botón "Guardar de nuevo a sheets", permitimos
+  // pagos validados (1000, 3000, o cualquier pago marcado como conciliado/verificado).
+  if (force) {
+    if (isConciliado || codeNum === 1000 || record.status === 'verified') return true;
+    return codeNum !== 1010;
   }
-  // Solo se envía a Google Sheet automáticamente si el pago fue verificado con éxito (Código 1000)
+
+  // En guardado automático inicial:
+  // Solo se envía automáticamente si el código es 1000 y no fue advertido como ya conciliado
+  if (codeNum === 1010 || isConciliado) return false;
   return codeNum === 1000;
 }
 
@@ -453,10 +448,10 @@ export async function sendVerifiedPaymentToSheet(record, force = false) {
     monto_bs: montoNum,
     referencia: referenciaStr || '0000',
     fecha_hora: getVenezuelanTimestamp(),
-    caja: getCajaForSheet(),
-    turno_entrada: getTurnoForSheet(),
-    usuario: getUsuarioForSheet(),
-    sede: getActiveSedeForSheet(),
+    caja: getCajaForSheet() || record.caja || 'Caja 01',
+    turno_entrada: getTurnoForSheet() || record.turno || record.turno_entrada || '10:00am',
+    usuario: getUsuarioForSheet() || record.usuario || 'Cajero',
+    sede: getActiveSedeForSheet() || record.sede || 'Naguanagua, Las Quintas',
     banco_receptor: isBdv ? 'Banco de Venezuela' : 'Binance Pay',
     empresa: String(
       record.merchantName || (isBdv ? DEFAULT_MERCHANT_CONFIG.bdvAccountName : DEFAULT_MERCHANT_CONFIG.binanceAccountName)
@@ -529,10 +524,8 @@ export async function guardarDeNuevoASheets() {
     return;
   }
 
-  // Comprobar campos de cabecera obligatorios
-  if (!validateVpMetaFields()) {
-    return;
-  }
+  // Asegurar campos de cabecera obligatorios
+  validateVpMetaFields(false);
 
   const btnCard = document.getElementById('btnResendToSheetResultCard');
   const lblCard = document.getElementById('lblResendToSheet');
@@ -543,27 +536,33 @@ export async function guardarDeNuevoASheets() {
     if (btnCard) btnCard.disabled = loading;
     if (btnModal) btnModal.disabled = loading;
     if (loading) {
-      if (lblCard) lblCard.textContent = 'Guardando en Sheets...';
-      if (lblModal) lblModal.textContent = 'Guardando en Sheets...';
+      if (lblCard) lblCard.textContent = 'Enviando a Sheets...';
+      if (lblModal) lblModal.textContent = 'Enviando a Sheets...';
     }
   };
 
   setButtonsLoading(true);
 
   try {
-    toast('⏳ Guardando pago en Google Sheets...');
+    toast('⏳ Enviando pago a Google Sheets...');
     const result = await sendVerifiedPaymentToSheet(record, true);
 
     if (result && (result.status === 'success' || result.status === 'duplicate')) {
       const isDup = result.status === 'duplicate';
-      if (lblCard) lblCard.textContent = isDup ? '✓ Ya en Sheets' : '✓ ¡Guardado en Sheets!';
-      if (lblModal) lblModal.textContent = isDup ? '✓ Ya en Sheets' : '✓ ¡Guardado en Sheets!';
+      const msgSuccess = isDup ? '✓ Ya en Sheets' : '✓ ¡Guardado en Sheets!';
+      if (lblCard) lblCard.textContent = msgSuccess;
+      if (lblModal) lblModal.textContent = msgSuccess;
       setTimeout(() => {
         if (lblCard) lblCard.textContent = 'Guardar de nuevo a Sheets';
         if (lblModal) lblModal.textContent = 'Guardar de nuevo a Sheets';
         if (btnCard) btnCard.disabled = false;
         if (btnModal) btnModal.disabled = false;
       }, 2500);
+
+      // Si existe la función de recargar reporte, actualizarlo inmediatamente
+      if (typeof window !== 'undefined' && typeof window.solicitarReporteTransferencias === 'function') {
+        window.solicitarReporteTransferencias(0, true).catch(() => {});
+      }
     } else {
       if (lblCard) lblCard.textContent = 'Reintentar Guardar';
       if (lblModal) lblModal.textContent = 'Reintentar Guardar';
@@ -907,11 +906,12 @@ const bdvResultsByAccount = {
 };
 let binanceResult = null;
 const getCurrentResult = () => {
+  if (selectedReceipt) return selectedReceipt;
   if (activeChannel === 'bdv') {
     const key = DEFAULT_MERCHANT_CONFIG.bdvAccountKey || 'tucombox';
-    return bdvResultsByAccount[key] || null;
+    return bdvResultsByAccount[key] || currentResult || bdvResult || null;
   }
-  return binanceResult || currentResult;
+  return binanceResult || currentResult || selectedReceipt || null;
 };
 let selectedReceipt = null;
 let createdOrder = null;
@@ -2686,14 +2686,20 @@ window.handleBdvSubmit = async (e) => {
     const code = Number(resData?.code ?? 1010);
     const isVerified = code === 1000;
     const isRejected = code === 1010;
+    const msgLower = String(resData?.message || '').toLowerCase();
+    const isAlreadyConciliated =
+      code === 3000 ||
+      msgLower.includes('conciliado') ||
+      msgLower.includes('ya fue conciliad') ||
+      msgLower.includes('ya fue validado');
 
     currentResult = {
       id: 'rec_' + Date.now(),
       timestamp: new Date().toISOString(),
       channel: 'bdv',
-      status: isVerified ? 'verified' : isRejected ? 'rejected' : 'error',
+      status: isVerified ? 'verified' : isAlreadyConciliated ? 'conciliated' : isRejected ? 'rejected' : 'error',
       code,
-      message: resData?.message || (isVerified ? `Pago confirmado en Banco de Venezuela (${DEFAULT_MERCHANT_CONFIG.bdvAccountName})` : 'Pago no conciliado'),
+      message: resData?.message || (isVerified ? `Pago confirmado en Banco de Venezuela (${DEFAULT_MERCHANT_CONFIG.bdvAccountName})` : (isAlreadyConciliated ? 'Pago ya conciliado en Banco de Venezuela' : 'Pago no conciliado')),
       amount: numAmount.toFixed(2),
       currency: 'VES',
       reference: referencia,
@@ -2706,6 +2712,9 @@ window.handleBdvSubmit = async (e) => {
       paymentDate: fechaPago,
       rawResponse: resData
     };
+
+    bdvResultsByAccount[activeAccountKey] = currentResult;
+    bdvResult = currentResult;
 
     renderResultCard(currentResult);
     if (isPaymentValidForSheet(currentResult)) {
