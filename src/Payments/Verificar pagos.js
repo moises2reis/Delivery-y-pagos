@@ -215,15 +215,132 @@ function getLocalSavedTransfers() {
   }
 }
 
+function extractVenezuelaDateYMD(raw) {
+  if (!raw) return '';
+  const str = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      try {
+        const caracasParts = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/Caracas',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).formatToParts(d);
+        const cYear = caracasParts.find(p => p.type === 'year')?.value;
+        const cMonth = caracasParts.find(p => p.type === 'month')?.value;
+        const cDay = caracasParts.find(p => p.type === 'day')?.value;
+        if (cYear && cMonth && cDay) {
+          return `${cYear}-${cMonth}-${cDay}`;
+        }
+      } catch (_) {}
+    }
+    return str.slice(0, 10);
+  }
+
+  const firstPart = str.split(/[\sT,]/)[0];
+  const parts = firstPart.split(/[\/\-]/);
+  if (parts.length === 3) {
+    if (parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    } else if (parts[0].length === 4) {
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+  }
+  return str;
+}
+
+function normalizeTransferPhoneKey(rawPhone) {
+  const raw = String(rawPhone || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  if (digits.length > 0) return digits;
+  return raw.toLowerCase();
+}
+
+function normalizeTransferRefKey(rawRef) {
+  const raw = String(rawRef || '').trim().replace(/^\*+/, '');
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 4) return digits.slice(-4);
+  if (digits.length > 0) return digits;
+  return raw.toUpperCase();
+}
+
+function normalizeTransferAmountKey(rawAmount) {
+  if (typeof rawAmount === 'number') {
+    return (isNaN(rawAmount) ? 0 : rawAmount).toFixed(2);
+  }
+  const str = String(rawAmount ?? '').trim();
+  if (!str) return '0.00';
+  const clean = str.includes(',') && !str.includes('.')
+    ? str.replace(/\./g, '').replace(',', '.')
+    : str.replace(/,/g, '');
+  const num = parseFloat(clean);
+  return (isNaN(num) ? 0 : num).toFixed(2);
+}
+
+function getTransferDedupKey(item, fallbackDate = '') {
+  if (!item) return '';
+  const dateKey =
+    extractVenezuelaDateYMD(item.fecha_hora || item.paymentDate || fallbackDate) ||
+    extractVenezuelaDateYMD(fallbackDate);
+  const phoneKey = normalizeTransferPhoneKey(
+    item.telefono_cliente ?? item.payerPhone ?? item.payerName ?? item.payerDoc ?? ''
+  );
+  const refKey = normalizeTransferRefKey(item.referencia ?? item.reference ?? '');
+  const amountKey = normalizeTransferAmountKey(item.monto_bs ?? item.amount ?? 0);
+  return `${dateKey}|${phoneKey}|${refKey}|${amountKey}`;
+}
+
+function deduplicateTransfersList(list, fallbackDate = '') {
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const seen = new Set();
+  const unique = [];
+  for (const item of list) {
+    if (!item) continue;
+    const key = getTransferDedupKey(item, fallbackDate);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
+}
+
+function isTransferAlreadySavedToday(record) {
+  if (!record) return false;
+  const targetDate = extractVenezuelaDateYMD(record.paymentDate) || getTodayDate();
+  const targetKey = getTransferDedupKey(
+    {
+      fecha_hora: targetDate,
+      telefono_cliente: record.payerPhone || record.payerName || record.payerDoc || '',
+      referencia: record.reference || '',
+      monto_bs: record.amount || 0
+    },
+    targetDate
+  );
+  const localList = getLocalSavedTransfers();
+  if (localList.some(t => getTransferDedupKey(t, targetDate) === targetKey)) {
+    return true;
+  }
+  if (
+    typeof cachedReporteTransactions !== 'undefined' &&
+    Array.isArray(cachedReporteTransactions) &&
+    cachedReporteTransactions.some(t => getTransferDedupKey(t, targetDate) === targetKey)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function saveTransferLocally(payload) {
   try {
     if (typeof localStorage === 'undefined' || !payload) return;
     const current = getLocalSavedTransfers();
-    const exists = current.some(
-      (t) =>
-        String(t.referencia || '').trim() === String(payload.referencia || '').trim() &&
-        Number(t.monto_bs) === Number(payload.monto_bs)
-    );
+    const payloadKey = getTransferDedupKey(payload);
+    const exists = current.some((t) => getTransferDedupKey(t) === payloadKey);
     if (!exists) {
       current.unshift(payload);
       localStorage.setItem(LOCAL_TRANSFERS_STORAGE_KEY, JSON.stringify(current.slice(0, 1000)));
@@ -357,7 +474,8 @@ function filterTransfersClientSide(list, filtros = {}) {
     );
   }
 
-  return result;
+  // Eliminar duplicados que tengan el mismo monto, teléfono, referencia y fecha del filtro
+  return deduplicateTransfersList(result, filtros.fecha || '');
 }
 
 function isPaymentValidForSheet(record, force = false) {
@@ -367,20 +485,23 @@ function isPaymentValidForSheet(record, force = false) {
   const isConciliado =
     codeNum === 3000 ||
     record.status === 'conciliated' ||
-    msg.includes('conciliado') ||
-    msg.includes('ya fue conciliad') ||
-    msg.includes('ya fue validado');
+    (!msg.includes('no conciliad') && (
+      msg.includes('conciliado') ||
+      msg.includes('ya fue conciliad') ||
+      msg.includes('ya fue validado')
+    ));
 
-  // Si se fuerza manualmente con el botón "Guardar de nuevo a sheets", permitimos
-  // pagos validados (1000, 3000, o cualquier pago marcado como conciliado/verificado).
+  // Si se fuerza manualmente con el botón "Guardar de nuevo a Sheets", permitimos
+  // pagos validados (1000, 3000, conciliados) y también código 1010 de BDV por si acaso.
   if (force) {
-    if (isConciliado || codeNum === 1000 || record.status === 'verified') return true;
-    return codeNum !== 1010;
+    return isConciliado || codeNum === 1000 || codeNum === 1010 || record.status === 'verified';
   }
 
   // En guardado automático inicial:
-  // Solo se envía automáticamente si el código es 1000 y no fue advertido como ya conciliado
+  // Si el código es 1010, ya fue conciliado o ya existe el mismo pago (mismo teléfono, monto, referencia y día),
+  // NO se envía automáticamente a Google Sheets.
   if (codeNum === 1010 || isConciliado) return false;
+  if (isTransferAlreadySavedToday(record)) return false;
   return codeNum === 1000;
 }
 
@@ -660,11 +781,14 @@ export async function obtenerTransferencias(filtros = {}) {
     }
 
     if (data && (data.status === 'success' || Array.isArray(data.data) || Array.isArray(data))) {
-      let remotas = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
-      // Aplicar filtrado en cliente para 'usuario', normalización de 'turno' y verificación de 'fecha'
-      remotas = filterTransfersClientSide(remotas, filtros);
+      const rawRemotas = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      const rawLength = rawRemotas.length;
+      // Aplicar filtrado en cliente y deduplicación por monto, teléfono, referencia y fecha
+      const remotas = filterTransfersClientSide(rawRemotas, filtros);
+      const removedByFilterOrDedup = rawLength !== remotas.length;
 
       const hasClientSideOnlyFilter = Boolean(
+        removedByFilterOrDedup ||
         (filtros.usuario && String(filtros.usuario).trim() !== '') ||
         (filtros.turno && String(filtros.turno).trim() !== '') ||
         (filtros.fecha && String(filtros.fecha).trim() !== '')
@@ -2100,9 +2224,11 @@ function renderResultCard(record, shouldScroll = true) {
   const isRejected = codeNum === 1010;
   const isAlreadyValidated =
     codeNum === 3000 ||
-    msgLower.includes('conciliado') ||
-    msgLower.includes('ya fue conciliad') ||
-    msgLower.includes('ya fue validado');
+    (!msgLower.includes('no conciliad') && (
+      msgLower.includes('conciliado') ||
+      msgLower.includes('ya fue conciliad') ||
+      msgLower.includes('ya fue validado')
+    ));
   const isValidatedPayment = isSuccess || isAlreadyValidated;
 
   let bg = 'rgba(245, 158, 11, 0.08)';
@@ -2128,13 +2254,14 @@ function renderResultCard(record, shouldScroll = true) {
     border = 'rgba(239, 68, 68, 0.25)';
     badgeStyle = 'background: rgba(239,68,68,0.15); color: #EF4444; border: 1px solid rgba(239,68,68,0.3);';
     iconSvg = `<svg class="ic" viewBox="0 0 24 24" style="width: 18px; height: 18px; stroke: #EF4444;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
-    title = 'Pago No Validado';
+    title = 'Pago No Validado / Ya Procesado';
   }
 
   const merchantLabel = record.merchantName || (record.channel === 'bdv' ? DEFAULT_MERCHANT_CONFIG.bdvAccountName : DEFAULT_MERCHANT_CONFIG.binanceAccountName);
   const canSendToSheet = isPaymentValidForSheet(record);
   const syncText = record.sheetSyncText || (canSendToSheet ? '⏳ Enviando a Google Sheets...' : (isAlreadyValidated ? 'Listo para guardar en Sheets' : ''));
-  const canShowResendBtn = (record.channel === 'bdv' && isValidatedPayment) || (record.channel === 'binance' && isSuccess);
+  // En BDV permitimos siempre el botón "Guardar de nuevo a Sheets" también cuando el código es 1010 (pago ya validado anteriormente)
+  const canShowResendBtn = (record.channel === 'bdv' && (isValidatedPayment || codeNum === 1010)) || (record.channel === 'binance' && isSuccess);
 
   container.innerHTML = `
     <div style="border-radius: 14px; padding: 14px; background: ${bg}; border: 1px solid ${border}; color: var(--ink);">
@@ -2149,11 +2276,9 @@ function renderResultCard(record, shouldScroll = true) {
               <span style="font-size: 9.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; padding: 2px 7px; border-radius: 99px; text-transform: uppercase; ${badgeStyle}">
                 CÓDIGO ${record.code}
               </span>
-              ${(canSendToSheet || isAlreadyValidated || record.sheetSyncText) ? `
-              <span id="sheetSyncStatusBadge" style="display: inline-flex; align-items: center; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(59, 130, 246, 0.12); color: #60A5FA; border: 1px solid rgba(59, 130, 246, 0.3);">
+              <span id="sheetSyncStatusBadge" style="display: ${(canSendToSheet || isAlreadyValidated || record.sheetSyncText) ? 'inline-flex' : 'none'}; align-items: center; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: rgba(59, 130, 246, 0.12); color: #60A5FA; border: 1px solid rgba(59, 130, 246, 0.3);">
                 ${syncText}
               </span>
-              ` : ''}
             </div>
             <p style="margin: 4px 0 0; font-size: 12px; line-height: 1.4; color: var(--soft);">
               ${record.message || (isSuccess ? 'El movimiento bancario coincide perfectamente.' : 'Verifica los datos ingresados.')}
@@ -2202,7 +2327,7 @@ function renderResultCard(record, shouldScroll = true) {
       </div>
     </div>
   `;
-  if ((canSendToSheet || isAlreadyValidated) && record.sheetSyncType) {
+  if (record.sheetSyncType) {
     updateSheetSyncBadgeUI(record.sheetSyncType, record.sheetSyncText);
   }
   container.style.display = 'block';
@@ -2720,9 +2845,11 @@ window.handleBdvSubmit = async (e) => {
     const msgLower = String(resData?.message || '').toLowerCase();
     const isAlreadyConciliated =
       code === 3000 ||
-      msgLower.includes('conciliado') ||
-      msgLower.includes('ya fue conciliad') ||
-      msgLower.includes('ya fue validado');
+      (!msgLower.includes('no conciliad') && (
+        msgLower.includes('conciliado') ||
+        msgLower.includes('ya fue conciliad') ||
+        msgLower.includes('ya fue validado')
+      ));
 
     currentResult = {
       id: 'rec_' + Date.now(),
@@ -2744,6 +2871,12 @@ window.handleBdvSubmit = async (e) => {
       rawResponse: resData
     };
 
+    const alreadySavedToday = isTransferAlreadySavedToday(currentResult);
+    if (alreadySavedToday && isVerified) {
+      currentResult.sheetSyncType = 'duplicate';
+      currentResult.sheetSyncText = '✓ Ya registrado hoy en Sheets';
+    }
+
     bdvResultsByAccount[activeAccountKey] = currentResult;
     bdvResult = currentResult;
 
@@ -2753,10 +2886,12 @@ window.handleBdvSubmit = async (e) => {
       sendVerifiedPaymentToSheet(currentResult);
     } else {
       const msg = String(currentResult.message || '').toLowerCase();
-      if (currentResult.code === 3000 || msg.includes('conciliado') || msg.includes('ya fue conciliad') || msg.includes('ya fue validado')) {
+      if (alreadySavedToday && isVerified) {
+        toast('ℹ️ Este pago ya fue registrado hoy. Usa "Guardar de nuevo a Sheets" si deseas reenviarlo.');
+      } else if (currentResult.code === 3000 || isAlreadyConciliated) {
         toast('ℹ️ Pago validado (ya conciliado en BDV). Usa "Guardar de nuevo a Sheets" para guardarlo.');
       } else if (isRejected || currentResult.code === 1010) {
-        toast('Pago BDV no válido o no conciliado');
+        toast('ℹ️ Código 1010: No se envió automáticamente a Sheets. Puedes usar "Guardar de nuevo a Sheets" si lo requieres.');
       } else {
         toast(currentResult.message || 'Pago BDV no conciliado');
       }
@@ -3841,11 +3976,13 @@ window.openDigitalReceipt = () => {
     const msgLower = String(selectedReceipt.message || '').toLowerCase();
     const isAlreadyVal =
       codeNum === 3000 ||
-      msgLower.includes('conciliado') ||
-      msgLower.includes('ya fue conciliad') ||
-      msgLower.includes('ya fue validado');
+      (!msgLower.includes('no conciliad') && (
+        msgLower.includes('conciliado') ||
+        msgLower.includes('ya fue conciliad') ||
+        msgLower.includes('ya fue validado')
+      ));
     const isSuccess = codeNum === 1000;
-    if ((isBdv && (isSuccess || isAlreadyVal)) || (!isBdv && isSuccess)) {
+    if ((isBdv && (isSuccess || isAlreadyVal || codeNum === 1010)) || (!isBdv && isSuccess)) {
       resendBtn.style.display = 'flex';
       const lbl = document.getElementById('lblResendReceiptModal');
       if (lbl) lbl.textContent = 'Guardar de nuevo a Sheets';
@@ -4039,8 +4176,10 @@ function renderReporteFilterBadges() {
 function restoreCachedReporteView() {
   const stored = loadReporteCacheFromStorage();
   if (stored) {
-    cachedReporteTransactions = stored.transacciones || [];
-    reportePaginationState.total = stored.total || 0;
+    const fechaEl = document.getElementById('reporteFilterFecha');
+    const activeFecha = fechaEl ? fechaEl.value.trim() : '';
+    cachedReporteTransactions = deduplicateTransfersList(stored.transacciones || [], activeFecha);
+    reportePaginationState.total = cachedReporteTransactions.length;
     reportePaginationState.hayMas = Boolean(stored.hayMas);
     reportePaginationState.offset = stored.offset || 0;
     hasReporteCacheLoaded = true;
@@ -4052,7 +4191,7 @@ function restoreCachedReporteView() {
     if (localQuery) {
       window.filtrarListaReporteLocal(localQuery);
     } else {
-      window.renderReporteTransfersList(cachedReporteTransactions, reportePaginationState.total);
+      window.renderReporteTransfersList(cachedReporteTransactions, cachedReporteTransactions.length);
     }
     renderReportePaginationUI();
   } else {
@@ -4218,12 +4357,13 @@ window.solicitarReporteTransferencias = async (offset = 0) => {
 
   try {
     const resultado = await obtenerTransferencias(filtros);
-    cachedReporteTransactions = resultado.transacciones || [];
-    reportePaginationState.total = resultado.total || 0;
+    const dedupedList = deduplicateTransfersList(resultado.transacciones || [], fechaVal);
+    cachedReporteTransactions = dedupedList;
+    reportePaginationState.total = dedupedList.length;
     reportePaginationState.hayMas = Boolean(resultado.hayMas);
     hasReporteCacheLoaded = true;
 
-    // Guardar resultados en caché para mantenerlos al cambiar de pestaña o recargar
+    // Guardar resultados sin duplicados en caché para mantenerlos al cambiar de pestaña o recargar
     saveReporteCacheToStorage(
       cachedReporteTransactions,
       reportePaginationState.total,
@@ -4302,8 +4442,15 @@ window.renderReporteTransfersList = (list, totalCount) => {
   const container = document.getElementById('reporteTransfersListContainer');
   if (!container) return;
 
-  currentRenderedReporteTransactions = list || [];
-  updateReporteKpis(currentRenderedReporteTransactions, totalCount);
+  const fechaEl = document.getElementById('reporteFilterFecha');
+  const activeFecha = fechaEl ? fechaEl.value.trim() : '';
+  const deduped = deduplicateTransfersList(list || [], activeFecha);
+
+  currentRenderedReporteTransactions = deduped;
+  const effectiveTotal = typeof totalCount === 'number' && totalCount < deduped.length
+    ? totalCount
+    : deduped.length;
+  updateReporteKpis(currentRenderedReporteTransactions, effectiveTotal);
 
   if (!currentRenderedReporteTransactions || currentRenderedReporteTransactions.length === 0) {
     container.innerHTML = `
