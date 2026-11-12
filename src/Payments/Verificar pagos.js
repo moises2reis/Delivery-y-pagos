@@ -555,11 +555,6 @@ export async function guardarDeNuevoASheets() {
         if (btnCard) btnCard.disabled = false;
         if (btnModal) btnModal.disabled = false;
       }, 2500);
-
-      // Si existe la función de recargar reporte, actualizarlo inmediatamente
-      if (typeof window !== 'undefined' && typeof window.solicitarReporteTransferencias === 'function') {
-        window.solicitarReporteTransferencias(0).catch(() => {});
-      }
     } else {
       if (lblCard) lblCard.textContent = 'Reintentar Guardar';
       if (lblModal) lblModal.textContent = 'Reintentar Guardar';
@@ -1563,7 +1558,7 @@ export const verificarPagosViewHTML = `
             id="reporteFilterFecha"
             type="date"
             value="${getTodayDate()}"
-            onchange="window.solicitarReporteTransferencias(0)"
+            onchange="window.onReporteLocalFilterControlChange()"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: var(--fill); border: 1px solid var(--hair); border-radius: 9px; color: var(--ink); font-family: inherit; outline: none; color-scheme: dark;"
           />
         </div>
@@ -1574,7 +1569,7 @@ export const verificarPagosViewHTML = `
           </label>
           <select
             id="reporteFilterBancoReceptor"
-            onchange="window.solicitarReporteTransferencias(0)"
+            onchange="window.onReporteLocalFilterControlChange()"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: #18181b; border: 1px solid var(--hair); border-radius: 9px; color: #f4f4f5; font-family: inherit; outline: none; color-scheme: dark;"
           >
             <option value="" style="background-color: #18181b; color: #f4f4f5;">Todos</option>
@@ -1589,7 +1584,7 @@ export const verificarPagosViewHTML = `
           </label>
           <select
             id="reporteFilterEmpresa"
-            onchange="window.solicitarReporteTransferencias(0)"
+            onchange="window.onReporteLocalFilterControlChange()"
             style="width: 100%; height: 34px; padding: 0 10px; box-sizing: border-box; font-size: 12px; background: #18181b; border: 1px solid var(--hair); border-radius: 9px; color: #f4f4f5; font-family: inherit; outline: none; color-scheme: dark;"
           >
             <option value="" style="background-color: #18181b; color: #f4f4f5;">Todas</option>
@@ -3930,16 +3925,72 @@ window.applyPaymentToPOS = () => {
 // CONTROLADOR DE VISTA DE REPORTE DE TRANSFERENCIAS GUARDADAS
 // ============================================================
 
+const REPORTE_CACHE_STORAGE_KEY = 'pos_vp_reporte_cache_v1';
+
+function loadReporteCacheFromStorage() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(REPORTE_CACHE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.transacciones)) {
+      return parsed;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function saveReporteCacheToStorage(transacciones, total, hayMas, offset) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const payload = {
+      transacciones: Array.isArray(transacciones) ? transacciones : [],
+      total: Number(total) || 0,
+      hayMas: Boolean(hayMas),
+      offset: Number(offset) || 0,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem(REPORTE_CACHE_STORAGE_KEY, JSON.stringify(payload));
+  } catch (_) {}
+}
+
 let activeMainPaymentMode = 'pagos'; // 'pagos' | 'reporte'
-let cachedReporteTransactions = [];
+const initialReporteCache = loadReporteCacheFromStorage();
+let cachedReporteTransactions = initialReporteCache ? initialReporteCache.transacciones : [];
 let currentRenderedReporteTransactions = [];
 let reportePaginationState = {
   limit: 100,
-  offset: 0,
-  total: 0,
-  hayMas: false
+  offset: initialReporteCache ? (initialReporteCache.offset || 0) : 0,
+  total: initialReporteCache ? (initialReporteCache.total || 0) : 0,
+  hayMas: initialReporteCache ? Boolean(initialReporteCache.hayMas) : false
 };
-let usuarioFilterDebounceTimer = null;
+let hasReporteCacheLoaded = Boolean(initialReporteCache);
+
+function renderReportePaginationUI() {
+  const paginationBar = document.getElementById('reportePaginationBar');
+  if (!paginationBar) return;
+  if (reportePaginationState.total > 0 && cachedReporteTransactions.length > 0) {
+    paginationBar.style.display = 'flex';
+    const infoEl = document.getElementById('reportePaginationInfo');
+    const prevBtn = document.getElementById('btnReportePrevPage');
+    const nextBtn = document.getElementById('btnReporteNextPage');
+    const startIdx = reportePaginationState.offset + 1;
+    const endIdx = reportePaginationState.offset + cachedReporteTransactions.length;
+    if (infoEl) {
+      infoEl.textContent = `Mostrando ${startIdx}-${endIdx} de ${reportePaginationState.total}`;
+    }
+    if (prevBtn) {
+      prevBtn.disabled = reportePaginationState.offset <= 0;
+      prevBtn.style.opacity = reportePaginationState.offset <= 0 ? '0.4' : '1';
+    }
+    if (nextBtn) {
+      nextBtn.disabled = !reportePaginationState.hayMas;
+      nextBtn.style.opacity = !reportePaginationState.hayMas ? '0.4' : '1';
+    }
+  } else {
+    paginationBar.style.display = 'none';
+  }
+}
 
 function renderReporteFilterBadges() {
   const container = document.getElementById('reporteActiveFilterBadges');
@@ -3985,6 +4036,39 @@ function renderReporteFilterBadges() {
     .join('');
 }
 
+function restoreCachedReporteView() {
+  const stored = loadReporteCacheFromStorage();
+  if (stored) {
+    cachedReporteTransactions = stored.transacciones || [];
+    reportePaginationState.total = stored.total || 0;
+    reportePaginationState.hayMas = Boolean(stored.hayMas);
+    reportePaginationState.offset = stored.offset || 0;
+    hasReporteCacheLoaded = true;
+  }
+
+  if (hasReporteCacheLoaded) {
+    const searchInput = document.getElementById('reporteFilterSearch');
+    const localQuery = searchInput ? searchInput.value.trim() : '';
+    if (localQuery) {
+      window.filtrarListaReporteLocal(localQuery);
+    } else {
+      window.renderReporteTransfersList(cachedReporteTransactions, reportePaginationState.total);
+    }
+    renderReportePaginationUI();
+  } else {
+    const listContainer = document.getElementById('reporteTransfersListContainer');
+    if (listContainer) {
+      listContainer.innerHTML = `
+        <div style="padding: 28px 16px; text-align: center; color: var(--muted); font-size: 12.5px; background: var(--fill); border: 1px dashed var(--hair); border-radius: 12px;">
+          Presiona <strong style="color: #00FF00;">"Solicitar Reporte"</strong> para consultar las transferencias guardadas.
+        </div>
+      `;
+    }
+    updateReporteKpis([], 0);
+    renderReportePaginationUI();
+  }
+}
+
 window.setPaymentMainMode = (mode) => {
   activeMainPaymentMode = mode === 'reporte' ? 'reporte' : 'pagos';
   const paymentCard = document.getElementById('paymentMainCard');
@@ -4001,7 +4085,8 @@ window.setPaymentMainMode = (mode) => {
     }
     restoreHeaderMetaFromCache();
     renderReporteFilterBadges();
-    window.solicitarReporteTransferencias(0);
+    // Mostrar los datos guardados en caché sin recargar automáticamente de Google Sheets
+    restoreCachedReporteView();
   } else {
     if (reporteCard) reporteCard.style.display = 'none';
     if (paymentCard) paymentCard.style.display = 'block';
@@ -4009,11 +4094,14 @@ window.setPaymentMainMode = (mode) => {
   }
 };
 
+window.onReporteLocalFilterControlChange = () => {
+  renderReporteFilterBadges();
+};
+
 window.onMetaPillFilterUpdated = () => {
   saveHeaderMetaToCache();
   if (activeMainPaymentMode === 'reporte') {
     renderReporteFilterBadges();
-    window.solicitarReporteTransferencias(0);
   }
 };
 
@@ -4021,10 +4109,6 @@ window.onMetaUsuarioInput = () => {
   saveHeaderMetaToCache();
   if (activeMainPaymentMode !== 'reporte') return;
   renderReporteFilterBadges();
-  if (usuarioFilterDebounceTimer) clearTimeout(usuarioFilterDebounceTimer);
-  usuarioFilterDebounceTimer = setTimeout(() => {
-    window.solicitarReporteTransferencias(0);
-  }, 400);
 };
 
 function formatReporteFechaHora(raw) {
@@ -4088,7 +4172,6 @@ window.solicitarReporteTransferencias = async (offset = 0) => {
   const btn = document.getElementById('btnSolicitarReporte');
   const lblBtn = document.getElementById('lblBtnSolicitarReporte');
   const icRefresh = document.getElementById('icReporteRefresh');
-  const paginationBar = document.getElementById('reportePaginationBar');
 
   reportePaginationState.offset = Math.max(0, Number(offset) || 0);
 
@@ -4138,6 +4221,15 @@ window.solicitarReporteTransferencias = async (offset = 0) => {
     cachedReporteTransactions = resultado.transacciones || [];
     reportePaginationState.total = resultado.total || 0;
     reportePaginationState.hayMas = Boolean(resultado.hayMas);
+    hasReporteCacheLoaded = true;
+
+    // Guardar resultados en caché para mantenerlos al cambiar de pestaña o recargar
+    saveReporteCacheToStorage(
+      cachedReporteTransactions,
+      reportePaginationState.total,
+      reportePaginationState.hayMas,
+      reportePaginationState.offset
+    );
 
     const searchInput = document.getElementById('reporteFilterSearch');
     const localQuery = searchInput ? searchInput.value.trim() : '';
@@ -4148,29 +4240,7 @@ window.solicitarReporteTransferencias = async (offset = 0) => {
       window.renderReporteTransfersList(cachedReporteTransactions, reportePaginationState.total);
     }
 
-    if (paginationBar) {
-      if (reportePaginationState.total > 0) {
-        paginationBar.style.display = 'flex';
-        const infoEl = document.getElementById('reportePaginationInfo');
-        const prevBtn = document.getElementById('btnReportePrevPage');
-        const nextBtn = document.getElementById('btnReporteNextPage');
-        const startIdx = reportePaginationState.offset + 1;
-        const endIdx = reportePaginationState.offset + cachedReporteTransactions.length;
-        if (infoEl) {
-          infoEl.textContent = `Mostrando ${startIdx}-${endIdx} de ${reportePaginationState.total}`;
-        }
-        if (prevBtn) {
-          prevBtn.disabled = reportePaginationState.offset <= 0;
-          prevBtn.style.opacity = reportePaginationState.offset <= 0 ? '0.4' : '1';
-        }
-        if (nextBtn) {
-          nextBtn.disabled = !reportePaginationState.hayMas;
-          nextBtn.style.opacity = !reportePaginationState.hayMas ? '0.4' : '1';
-        }
-      } else {
-        paginationBar.style.display = 'none';
-      }
-    }
+    renderReportePaginationUI();
   } catch (err) {
     console.warn('[Aviso en solicitarReporteTransferencias]:', err);
     if (listContainer) {
