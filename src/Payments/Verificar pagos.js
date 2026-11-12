@@ -260,52 +260,49 @@ function normalizeTurnoValue(val) {
 function matchesFechaQuery(raw, fQuery) {
   if (!raw || !fQuery) return false;
   const str = String(raw).trim();
-  if (str === fQuery) return true;
+  const target = String(fQuery).trim();
+  if (str === target) return true;
 
-  // 1. Coincidencia directa por prefijo YYYY-MM-DD (ej: "2026-11-10T00:27:18.361Z")
-  if (str.slice(0, 10) === fQuery) return true;
+  // 1. Coincidencia si viene con formato ISO completo con zona horaria (ej: "2026-11-10T00:27:18.361Z")
+  // En ISO UTC, convertimos a America/Caracas (y también aceptamos el prefijo si no trae desfase de día)
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      try {
+        const caracasParts = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/Caracas',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).formatToParts(d);
+        const cYear = caracasParts.find(p => p.type === 'year')?.value;
+        const cMonth = caracasParts.find(p => p.type === 'month')?.value;
+        const cDay = caracasParts.find(p => p.type === 'day')?.value;
+        if (cYear && cMonth && cDay && `${cYear}-${cMonth}-${cDay}` === target) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return str.slice(0, 10) === target;
+  }
 
-  // 2. Coincidencia si viene como DD/MM/YYYY o DD-MM-YYYY (ej: "10/11/2026 10:00:00")
+  // 2. Coincidencia estricta si viene como DD/MM/YYYY o YYYY-MM-DD (ej: "11/11/2026 08:35:19 PM" o "2026-11-12")
+  // IMPORTANTE: En Venezuela siempre es DD/MM/YYYY. Retornar el resultado directamente sin pasar por new Date(str)
+  // porque new Date("11/11/2026 08:35:19 PM") interpreta formato estadounidense MM/DD/YYYY o suma desfase UTC.
   const firstPart = str.split(/[\sT,]/)[0];
   const parts = firstPart.split(/[\/\-]/);
   if (parts.length === 3) {
     if (parts[2].length === 4) {
+      // Formato venezolano DD/MM/YYYY
       const dmy = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      if (dmy === fQuery) return true;
+      return dmy === target;
     } else if (parts[0].length === 4) {
+      // Formato YYYY-MM-DD
       const ymd = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-      if (ymd === fQuery) return true;
+      return ymd === target;
     }
   }
 
-  // 3. Fallback con objeto Date en zona horaria America/Caracas, UTC y local
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) {
-    try {
-      const caracasParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/Caracas',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).formatToParts(d);
-      const cYear = caracasParts.find(p => p.type === 'year')?.value;
-      const cMonth = caracasParts.find(p => p.type === 'month')?.value;
-      const cDay = caracasParts.find(p => p.type === 'day')?.value;
-      if (cYear && cMonth && cDay && `${cYear}-${cMonth}-${cDay}` === fQuery) {
-        return true;
-      }
-    } catch (_) {}
-
-    const utcYear = d.getUTCFullYear();
-    const utcMonth = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const utcDay = String(d.getUTCDate()).padStart(2, '0');
-    if (`${utcYear}-${utcMonth}-${utcDay}` === fQuery) return true;
-
-    const lYear = d.getFullYear();
-    const lMonth = String(d.getMonth() + 1).padStart(2, '0');
-    const lDay = String(d.getDate()).padStart(2, '0');
-    if (`${lYear}-${lMonth}-${lDay}` === fQuery) return true;
-  }
   return false;
 }
 
@@ -813,6 +810,21 @@ function safeParseDate(val) {
     if (/^\d+$/.test(trimmed)) {
       const d = new Date(Number(trimmed));
       if (!isNaN(d.getTime())) return d;
+    }
+    // Soporte explícito para formato venezolano DD/MM/YYYY [hh:mm[:ss] [AM|PM]]
+    const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:[\s,]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM|am|pm))?)?/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+      const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+      const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+      const ampm = dmyMatch[7] ? dmyMatch[7].toUpperCase() : null;
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      const parsed = new Date(year, month, day, hours, minutes, seconds);
+      if (!isNaN(parsed.getTime())) return parsed;
     }
     const d = new Date(trimmed);
     if (!isNaN(d.getTime())) return d;
